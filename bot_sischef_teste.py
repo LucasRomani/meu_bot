@@ -85,9 +85,9 @@ class BotSischef:
 
                     input_elem = self.driver.find_element(By.ID, campo_id)
                     input_elem.clear()
-                    time.sleep(0.3)
+                    time.sleep(0.5)
                     input_elem.send_keys(valor)
-                    time.sleep(0.3)
+                    time.sleep(0.5)
 
                     # Se for o campo do grupo, esperar e apertar Enter
                     if campo_id == "tabSessoesProduto:grupoProduto_input":
@@ -96,7 +96,7 @@ class BotSischef:
 
                 # Salvar via Alt + S
                 self.driver.find_element(By.ID, "tabSessoesProduto:descricao").click()
-                time.sleep(0.3)
+                time.sleep(0.5)
                 self.driver.find_element(By.ID, "tabSessoesProduto:descricao").send_keys(Keys.ALT, "s")
                 print("💾 Produto salvo.")
                 time.sleep(2)
