@@ -1,0 +1,12 @@
+cd C:\meu_bot\meu_bot_0.1
+
+
+python -m venv .venv
+
+
+
+pip install --upgrade pip
+pip install selenium pandas pyinstaller
+
+
+pyinstaller --noconfirm --onedir --windowed --add-data "chromedriver.exe;." interface_bot_teste.py 

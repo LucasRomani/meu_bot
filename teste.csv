@@ -1,0 +1,13 @@
+ColunaDoGrupo,ColunaDoNomeDoProduto,ColunaDoCodigo,ColunaDoPreco,ColunaDaDescricaoOpcional,ColunaComplemento_S_N,descricao_complemento,item_descricao,item_desc_comp,item_codigo,item_valor
+PIZZAS,PIZZA GRANDE,P-GDE,50,Escolha até 2 sabores,S,,,,,
+,,,,,,SABORES,,,,
+,,,,,,,MARGHERITA,"Molho, queijo e manjericão",1001,50
+,,,,,,,CALABRESA,"Molho, queijo e calabresa",1002,100
+,,,,,,BORDAS,,,,
+,,,,,,,SEM BORDA,,2001,0
+,,,,,,,BORDA CATUPIRY,Borda recheada,2002,10
+LANCHES,X-BURGER,X-001,25,"Pão, carne e queijo",S,,,,,
+,,,,,,ADICIONAIS,,,,
+,,,,,,,BACON,2 fatias,3001,5
+,,,,,,,OVO,1 unidade,3002,3
+BEBIDAS,COCA-COLA 2L,B-001,12,,N,,,,,
