@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import scrolledtext, filedialog
 import threading
 import time
-from bot_sischef_teste import BotSischef
+from bot_sischef import BotSischef
 from selenium.common.exceptions import TimeoutException 
 
 bot = None

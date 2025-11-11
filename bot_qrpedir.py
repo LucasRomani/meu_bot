@@ -7,139 +7,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 
-class BotSischef:
-    def __init__(self, usuario, senha, arquivo_csv=None):
-        if not usuario or not senha:
-            raise ValueError("Usuário e senha não podem ser vazios!")
-        self.usuario = usuario
-        self.senha = senha
-        self.arquivo_csv = arquivo_csv
-        self.driver = None
-        self.rodando = True # Flag para parada do Sischef
-
-    def iniciar(self):
-        print("🔹 Abrindo navegador Sischef...")
-        options = webdriver.ChromeOptions()
-        options.add_argument("--start-maximized")
-        self.driver = webdriver.Chrome(options=options)
-
-        # Login
-        self.driver.get("https://sistema.sischef.com")
-        WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "j_username")))
-        time.sleep(1)
-
-        self.driver.find_element(By.ID, "j_username").send_keys(self.usuario)
-        self.driver.find_element(By.ID, "j_password").send_keys(self.senha)
-        time.sleep(0.5)
-        self.driver.find_element(By.ID, "login").click()
-
-        WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-        print("✅ Login Sischef realizado!")
-
-        url_cadastro = "https://sistema.sischef.com/admin/produtos/produto.jsf"
-        time.sleep(1)
-        self.driver.execute_script("window.location.href = arguments[0];", url_cadastro)
-
-        WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.ID, "tabSessoesProduto:descricao")))
-        print("✅ Tela de cadastro Sischef aberta!")
-
-    def cadastrar_produtos(self, callback_progresso=None):
-        if not self.arquivo_csv:
-            print("❌ Nenhum arquivo CSV selecionado.")
-            return
-
-        dados = pd.read_csv(self.arquivo_csv)
-
-        # Mapeamento CSV → campos do sistema
-        mapeamento_campos = {
-            "Descricao": "tabSessoesProduto:descricao",
-            "Grupo": "tabSessoesProduto:grupoProduto_input",
-            "CodigoBarras": "tabSessoesProduto:codigoBarras",
-            "NCM": "tabSessoesProduto:ncm",
-            "PrecoCompra": "tabSessoesProduto:valorUnitarioCompra",
-            "PrecoVenda": "tabSessoesProduto:valorUnitarioVenda"
-        }
-
-        for col in mapeamento_campos.keys():
-            if col not in dados.columns:
-                raise ValueError(f"❌ Coluna '{col}' não encontrada no CSV!")
-
-        total = len(dados)
-        print(f"📦 Total de produtos a cadastrar: {total}")
-
-        for i, row in dados.iterrows():
-            print(f"🔹 Cadastrando produto {i+1}/{total}: {row['Descricao']}")
-            try:
-                # Preenche os campos
-                for col_csv, campo_id in mapeamento_campos.items():
-                    valor = str(row[col_csv]).strip()
-
-                    # 🔹 Garantir duas casas decimais para preços
-                    if campo_id in ["tabSessoesProduto:valorUnitarioCompra", "tabSessoesProduto:valorUnitarioVenda"]:
-                        try:
-                            valor_numerico = float(valor.replace(",", "."))
-                            valor = f"{valor_numerico:.2f}".replace(".", ",")  # usa vírgula como separador
-                        except ValueError:
-                            print(f"⚠️ Valor inválido no campo {col_csv}: '{valor}'. Usando '0,00'.")
-                            valor = "0,00"
-
-                    input_elem = self.driver.find_element(By.ID, campo_id)
-                    input_elem.clear()
-                    time.sleep(0.5)
-                    input_elem.send_keys(valor)
-                    time.sleep(0.5)
-
-                    # Se for o campo do grupo, esperar e apertar Enter
-                    if campo_id == "tabSessoesProduto:grupoProduto_input":
-                        time.sleep(1)
-                        input_elem.send_keys(u'\ue007')  # Enter
-
-                # Salvar via Alt + S
-                self.driver.find_element(By.ID, "tabSessoesProduto:descricao").click()
-                time.sleep(0.5)
-                self.driver.find_element(By.ID, "tabSessoesProduto:descricao").send_keys(Keys.ALT, "s")
-                print("💾 Produto salvo.")
-                time.sleep(2)
-
-                # Clicar em Novo
-                botao_novo = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "a.mui-btn.mui-btn-text"))
-                )
-                botao_novo.click()
-                time.sleep(2)
-
-                # 🔄 Atualiza a interface
-                if callback_progresso:
-                    callback_progresso(i + 1, total)
-
-            except Exception as e:
-                print(f"❌ Erro ao cadastrar produto {i+1}: {e}")
-
-        print("✅ Cadastro de todos os produtos concluído!")
-
-    def fechar(self):
-        if self.driver:
-            try:
-                self.driver.quit()
-                print("✅ Navegador fechado com sucesso!")
-            except Exception as e:
-                print(f"❌ Erro ao fechar navegador: {e}")
-            finally:
-                self.driver = None
-
-        self.rodando = False # Sinaliza para o loop parar
-        if self.driver:
-            try:
-                self.driver.quit()
-                print("✅ Navegador Sischef fechado.")
-            except Exception as e:
-                print(f"❌ Erro ao fechar Sischef: {e}")
-            finally:
-                self.driver = None
-
-# ==========================================================
-# CLASSE QRPEDIR (LIMPA E CORRIGIDA)
-# ==========================================================
 class BotQRPedir:
     def __init__(self, usuario, senha):
         if not usuario or not senha:
@@ -152,13 +19,13 @@ class BotQRPedir:
         print("🔹 Abrindo navegador para QRPedir...")
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
-        self.driver = webdriver.Chrome(options=options)
+        # (Assume que o chromedriver está no PATH ou na mesma pasta)
+        self.driver = webdriver.Chrome(options=options) 
         self.driver.get("https://station.qrpedir.com/login")
         
         wait = WebDriverWait(self.driver, 10)
         
         try:
-            # --- Login ---
             campo_usuario = wait.until(EC.presence_of_element_located((By.NAME, "username"))) 
             campo_senha = self.driver.find_element(By.NAME, "password")
             
@@ -172,7 +39,6 @@ class BotQRPedir:
             wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Pedidos')]")))
             print("✅ Login no QRPedir realizado com sucesso!")
 
-            # --- Acessa o Cardápio ---
             print("... Acessando o Cardápio")
             cardapio_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//p[text()='Cardápio']")))
             cardapio_link.click()
@@ -211,18 +77,12 @@ class BotQRPedir:
         print("... Fechando pop-up do produto com a tecla ESC (via ActionChains)...")
         try:
             wait = WebDriverWait(self.driver, 10)
-            
-            # 1. Cria uma "Ação"
             action = ActionChains(self.driver)
-            
-            # 2. Envia a tecla ESCAPE
             action.send_keys(Keys.ESCAPE).perform()
             
-            # 3. Espera o modal fechar
             wait.until(EC.invisibility_of_element_located((By.NAME, "nome")))
             print("... Pop-up fechado.")
-            time.sleep(1) # Pausa antes do próximo item
-            
+            time.sleep(1)
         except Exception as e:
             print(f"❌ Erro ao tentar fechar o pop-up com ESC: {e}")
 
@@ -232,14 +92,12 @@ class BotQRPedir:
         try:
             wait = WebDriverWait(self.driver, 10)
             
-            # 1. Clicar em "Adicionar Complemento"
             add_comp_button = wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar Complemento')]"))
             )
             add_comp_button.click()
             time.sleep(1)
 
-            # 2. Preencher os dados do GRUPO (SABORES)
             print("... Preenchendo dados do Grupo de Complemento")
             campo_desc_grupo = wait.until(
                 EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Sabores tradicionais']"))
@@ -247,9 +105,7 @@ class BotQRPedir:
             campo_desc_grupo.send_keys(grupo_data['descricao_complemento'])
             time.sleep(0.3)
             
-            # (Lógica de Min/Max/Tipo foi removida)
-            
-            # 3. Loop para cadastrar os ITENS (COM CORREÇÃO DE DUPLICAÇÃO)
+            # Loop para cadastrar os ITENS (COM CORREÇÃO DE DUPLICAÇÃO)
             for i, item in enumerate(grupo_data['itens']):
                 print(f"... Adicionando item: {item['item_descricao']}")
                 
@@ -266,21 +122,17 @@ class BotQRPedir:
                     )
                     print(f"... Novos campos de item (total: {count_antes + 1}) apareceram.")
 
-                # Descrição do Item
                 campos_item_desc = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_anchor)))
                 campos_item_desc[-1].send_keys(item['item_descricao'])
                 
-                # Descrição Complementar
                 if item.get('item_desc_comp'):
                     campos_desc_comp = self.driver.find_elements(By.NAME, "descricaoComplementar")
                     campos_desc_comp[-1].send_keys(item['item_desc_comp'])
                 
-                # Código Externo
                 if item.get('item_codigo'):
                     campos_codigo = self.driver.find_elements(By.NAME, "codigoExterno")
                     campos_codigo[-1].send_keys(item['item_codigo'])
                 
-                # Valor (com Ctrl+A)
                 if item.get('item_valor'):
                     campos_valor = self.driver.find_elements(By.NAME, "valor")
                     campo_alvo_valor = campos_valor[-1]
@@ -293,13 +145,11 @@ class BotQRPedir:
                 
                 time.sleep(0.5)
             
-            # 4. Salvar o GRUPO de Complemento
             print("... Itens preenchidos. Salvando Grupo de Complemento.")
             wait.until(EC.element_to_be_clickable(
                 (By.XPATH, "//button[text()='SALVAR COMPLEMENTO']")
             )).click()
             
-            # 5. Esperar o modal do GRUPO fechar
             wait.until(EC.invisibility_of_element_located(
                 (By.XPATH, "//button[text()='SALVAR COMPLEMENTO']")
             ))
@@ -358,7 +208,6 @@ class BotQRPedir:
             campo_nome = wait.until(EC.presence_of_element_located((By.NAME, "nome")))
             time.sleep(0.5)
 
-            # --- 1. Preenche os campos do PRODUTO ---
             print(f"    -> Nome: {item_data['Nome']}")
             campo_nome.send_keys(item_data["Nome"])
             
@@ -377,21 +226,18 @@ class BotQRPedir:
                 self.driver.find_element(By.NAME, "descricao").send_keys(item_data["Descricao"])
             time.sleep(0.5)
 
-            # --- 2. Clica em "SALVAR" ---
             print("... Clicando em 'SALVAR' o produto.")
             botao_salvar_produto = wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[text()='SALVAR']"))
             )
             botao_salvar_produto.click()
 
-            # --- 3. Espera a aba Complementos aparecer ---
             print("... Aguardando aba 'Complementos' ficar disponível...")
             wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[text()='Complementos']"))
             )
             print(f"✅ Produto '{item_data['Nome']}' salvo.")
             
-            # --- 4. Decide o que fazer (S ou N) ---
             if str(item_data.get("PossuiComplemento")).strip().upper() == 'S':
                 print("... (S) Encontrado. Acessando complementos.")
                 self._acessar_complementos(item_data)
