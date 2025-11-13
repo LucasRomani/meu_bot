@@ -1,12 +1,12 @@
-cd C:\meu_bot\meu_bot_0.1
+Se você ainda não o tem, abra seu PowerShell e instale o PyInstaller (use o comando que funciona para você):
+
+Bash
+
+python -m pip install pyinstaller
 
 
-python -m venv .venv
+Abra o PowerShell ou CMD.
+Navegue até a pasta exata onde estão todos os seus arquivos .py
+cd C:\meu_bot_0.2
 
-
-
-pip install --upgrade pip
-pip install selenium pandas pyinstaller
-
-
-pyinstaller --noconfirm --onedir --windowed --add-data "chromedriver.exe;." interface_bot_teste.py 
+python -m PyInstaller --onefile --windowed --name="BotSischef" interface_bot.py

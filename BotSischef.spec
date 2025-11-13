@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['interface_bot_teste.py'],
+    ['interface_bot.py'],
     pathex=[],
     binaries=[],
     datas=[],
