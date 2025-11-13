@@ -3,6 +3,7 @@ from tkinter import scrolledtext, filedialog
 import threading
 import time
 import pandas as pd
+# --- IMPORTAÇÕES CORRIGIDAS ---
 from bot_sischef import BotSischef
 from bot_qrpedir import BotQRPedir
 # (O bot_ncm_editor é importado pelo bot_sischef)
@@ -220,7 +221,6 @@ def iniciar_cadastro_qrpedir():
         dados = pd.read_csv(csv_path_qrpedir, dtype=str).fillna('') 
         log_msg(f"Iniciando cadastro no QRPedir. Total de LINHAS lidas: {len(dados)}")
         
-        # (Mapeamento e Agrupamento - sem alterações)
         mapeamento = {
             "ColunaDoGrupo": "Grupo",
             "ColunaDoNomeDoProduto": "Nome",
@@ -268,33 +268,37 @@ def iniciar_cadastro_qrpedir():
         log_msg(f"✅ Dados agrupados. Total de PRODUTOS a cadastrar: {total}")
 
         log_msg(f"▶️ Retomando do item {ultimo_indice_qrpedir + 1}...")
+        
+        # Loop principal (continua de onde parou)
         for i in range(ultimo_indice_qrpedir, total):
             item_agrupado = itens_para_cadastrar[i]
             
-            if not cadastro_qr_rodando:
+            if not cadastro_qr_rodando: # Verifica se foi pausado
                 log_msg("ℹ️ Cadastro QRPedir interrompido pelo usuário.")
                 break
                 
             log_msg_qr = f"--- Processando Produto {i + 1}/{total}: {item_agrupado['Nome']} ---"
-            log_msg(log_msg_qr)
-            atualizar_contador(i, total, 'qrpedir', log_msg_qr)
+            atualizar_contador(i, total, 'qrpedir', log_msg_qr) # Atualiza contador (sem salvar progresso ainda)
             
             try:
                 bot_qrpedir.processar_item_cardapio(item_agrupado)
-                # --- SALVA O PROGRESSO ---
-                ultimo_indice_qrpedir = i + 1
+                
+                # --- SUCESSO: SALVA O PROGRESSO ---
+                ultimo_indice_qrpedir = i + 1 # Salva o próximo índice
                 atualizar_contador(i + 1, total, 'qrpedir', f"✅ Produto {item_agrupado['Nome']} salvo.")
+                
             except Exception as e:
                 log_msg(f"❌ ERRO no produto {item_agrupado['Nome']}: {e}")
                 log_msg(f"❌ ITEM PULADO: {item_agrupado['Nome']} (Índice {i + 1})")
-                # Salva o progresso para pular este item na próxima vez
+                
+                # --- ERRO: Salva o progresso para pular este item ---
                 ultimo_indice_qrpedir = i + 1 
                 # Continua para o próximo item
                 
         if ultimo_indice_qrpedir == total and cadastro_qr_rodando:
             log_msg("✅ Cadastro no QRPedir concluído!")
             log_msg(f"⏱️ Tempo total: {obter_tempo_decorrido_str()}")
-            ultimo_indice_qrpedir = 0
+            ultimo_indice_qrpedir = 0 # Reseta
         
     except Exception as e:
         log_msg(f"❌ Erro fatal durante o cadastro QRPedir: {e}")
@@ -304,7 +308,7 @@ def iniciar_cadastro_qrpedir():
         try:
             btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
         except tk.TclError:
-            pass
+            pass # Janela pode ter sido fechada
 
 # --- Funções Gerais ---
 
@@ -315,6 +319,7 @@ def escolher_csv_sischef():
         if caminho != csv_path_sischef:
             log_msg("ℹ️ Novo CSV Sischef selecionado. Progresso de retomada foi zerado.")
             ultimo_indice_sischef = 0
+            atualizar_contador(0, 0, 'sischef')
         csv_path_sischef = caminho
         log_msg(f"📄 CSV Sischef (Cadastro) selecionado.")
     else:
@@ -327,6 +332,7 @@ def escolher_csv_qrpedir():
         if caminho != csv_path_qrpedir:
             log_msg("ℹ️ Novo CSV QRPedir selecionado. Progresso de retomada foi zerado.")
             ultimo_indice_qrpedir = 0
+            atualizar_contador(0, 0, 'qrpedir')
         csv_path_qrpedir = caminho
         log_msg(f"📄 CSV QRPedir (Cadastro) selecionado.")
     else:
@@ -339,6 +345,7 @@ def escolher_csv_ncm():
         if caminho != csv_path_ncm:
             log_msg("ℹ️ Novo CSV NCM selecionado. Progresso de retomada foi zerado.")
             ultimo_indice_ncm = 0
+            atualizar_contador(0, 0, 'ncm')
         csv_path_ncm = caminho
         log_msg(f"📄 CSV de NCM selecionado.")
     else:
@@ -360,21 +367,28 @@ def atualizar_contador(atual=0, total=0, bot_type=None, log_msg_override=None):
     """Callback genérica para contador E SALVAR PROGRESSO."""
     global ultimo_indice_sischef, ultimo_indice_ncm
     
+    # Salva o progresso
     if bot_type == 'sischef':
         ultimo_indice_sischef = atual
     elif bot_type == 'ncm':
         ultimo_indice_ncm = atual
-    elif bot_type == 'qrpedir':
-        pass # QRPedir é salvo no loop principal
+    # QRPedir é salvo no loop principal
         
     try:
-        lbl_contador.config(text=f"📦 Itens: {atual}/{total}")
+        # Atualiza a GUI
+        if total > 0:
+            lbl_contador.config(text=f"📦 Itens: {atual}/{total}")
+        else:
+            # Se o total ainda não é conhecido (início)
+            lbl_contador.config(text=f"📦 Itens: {atual}/...")
+            
         if log_msg_override:
             log_msg(log_msg_override)
     except tk.TclError:
-        pass
+        pass # Janela fechada
 
 def atualizar_tempo():
+    """Atualiza o relógio enquanto um bot estiver rodando."""
     while rodando or cadastro_qr_rodando:
         try:
             lbl_tempo.config(text=f"⏱️ Tempo: {obter_tempo_decorrido_str()}")
@@ -389,12 +403,19 @@ def atualizar_tempo():
 def pausar_processos():
     """Para os loops dos bots e registra o tempo."""
     global rodando, cadastro_qr_rodando
+    
+    if not rodando and not cadastro_qr_rodando:
+        log_msg("ℹ️ Nenhum processo em execução para pausar.")
+        return
+        
     log_msg("⏸️ Solicitação de PAUSA recebida...")
     rodando = False
     cadastro_qr_rodando = False
     log_msg(f"⏱️ Processo pausado em: {obter_tempo_decorrido_str()}")
+    log_msg(f"ℹ️ Para retomar, clique no botão 'Iniciar' correspondente.")
     
     try:
+        # Reabilita todos os botões
         btn_iniciar_cadastro_sischef.config(state='normal', text="3. Iniciar Cadastro Sischef")
         btn_iniciar_ncm.config(state='normal', text="5. Iniciar Edição NCM")
         btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
@@ -402,6 +423,7 @@ def pausar_processos():
         pass
 
 def fechar_bots():
+    """Pausa os loops e fecha os navegadores."""
     global bot_sischef, bot_qrpedir, rodando, cadastro_qr_rodando
     log_msg("ℹ️ Solicitando fechamento...")
     pausar_processos() # Pausa os loops
@@ -409,10 +431,8 @@ def fechar_bots():
     def fechar_em_thread():
         if bot_sischef:
             bot_sischef.fechar()
-            log_msg("✅ Bot SISCHEF encerrado.")
         if bot_qrpedir:
             bot_qrpedir.fechar()
-            log_msg("✅ Bot QRPEDIR encerrado.")
         if not bot_sischef and not bot_qrpedir:
             log_msg("ℹ️ Nenhum bot estava aberto.")
         
@@ -422,6 +442,7 @@ def fechar_bots():
     threading.Thread(target=fechar_em_thread, daemon=True).start()
 
 def ao_fechar_janela():
+    """Garante que os bots fechem ao clicar no 'X' da janela."""
     fechar_bots()
     root.destroy()
 
@@ -430,6 +451,7 @@ root = tk.Tk()
 root.title("Bot Sischef & QRPedir - Cadastro via CSV")
 root.protocol("WM_DELETE_WINDOW", ao_fechar_janela)
 
+# --- Frame de Status (Linha 0) ---
 frame_status = tk.Frame(root)
 frame_status.grid(row=0, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
 lbl_tempo = tk.Label(frame_status, text="⏱️ Tempo: 00:00", font=("Arial", 10, "bold"))
@@ -437,6 +459,7 @@ lbl_tempo.pack(side=tk.LEFT, padx=5)
 lbl_contador = tk.Label(frame_status, text="📦 Itens: 0/0", font=("Arial", 10, "bold"))
 lbl_contador.pack(side=tk.RIGHT, padx=5)
 
+# --- Frame de Login (Linha 1) ---
 frame_login = tk.LabelFrame(root, text="Login", padx=10, pady=10)
 frame_login.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
 tk.Label(frame_login, text="Usuário:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
@@ -446,9 +469,11 @@ tk.Label(frame_login, text="Senha:").grid(row=1, column=0, padx=5, pady=5, stick
 entry_senha = tk.Entry(frame_login, width=30, show="*")
 entry_senha.grid(row=1, column=1, padx=5, pady=5)
 
+# --- Frame de Ações (Linha 2) ---
 frame_acoes = tk.Frame(root)
 frame_acoes.grid(row=2, column=0, columnspan=3, padx=10, pady=5)
 
+# Coluna 0: Sischef
 frame_sischef = tk.LabelFrame(frame_acoes, text="Sischef", padx=10, pady=10)
 frame_sischef.grid(row=0, column=0, padx=5, pady=5, sticky="ns")
 tk.Button(frame_sischef, text="1. Iniciar Bot Sischef", command=iniciar_bot_thread, bg="green", fg="white", width=25).pack(pady=5)
@@ -459,6 +484,7 @@ tk.Button(frame_sischef, text="4. Escolher CSV (NCM)", command=escolher_csv_ncm,
 btn_iniciar_ncm = tk.Button(frame_sischef, text="5. Iniciar Edição NCM", command=iniciar_edicao_ncm_thread, bg="orange", fg="white", width=25)
 btn_iniciar_ncm.pack(pady=5)
 
+# Coluna 1: QRPedir
 frame_qrpedir = tk.LabelFrame(frame_acoes, text="QRPedir", padx=10, pady=10)
 frame_qrpedir.grid(row=0, column=1, padx=5, pady=5, sticky="ns")
 tk.Button(frame_qrpedir, text="1. Iniciar Bot QRPedir", command=iniciar_bot_qrpedir_thread, bg="#00AEEF", fg="white", width=25).pack(pady=5)
@@ -466,11 +492,13 @@ tk.Button(frame_qrpedir, text="2. Escolher CSV (Cadastro)", command=escolher_csv
 btn_iniciar_cadastro_qr = tk.Button(frame_qrpedir, text="3. Iniciar Cadastro QRPedir", command=iniciar_cadastro_qrpedir_thread, bg="#00AEEF", fg="black", width=25)
 btn_iniciar_cadastro_qr.pack(pady=5)
 
+# Coluna 2: Global
 frame_global = tk.LabelFrame(frame_acoes, text="Geral", padx=10, pady=10)
 frame_global.grid(row=0, column=2, padx=5, pady=5, sticky="ns")
 tk.Button(frame_global, text="Pausar Processos", command=pausar_processos, bg="yellow", fg="black", width=25).pack(pady=5)
 tk.Button(frame_global, text="Fechar Navegadores", command=fechar_bots, bg="red", fg="white", width=25).pack(pady=(15, 5))
 
+# --- Frame de Log (Linha 3) ---
 frame_log = tk.LabelFrame(root, text="Log de Atividades", padx=10, pady=10)
 frame_log.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 txt_log = scrolledtext.ScrolledText(frame_log, width=100, height=15, state='disabled', wrap=tk.WORD)

@@ -1,482 +1,367 @@
-import tkinter as tk
-from tkinter import scrolledtext, filedialog
-import threading
 import time
 import pandas as pd
-from bot_sischef import BotSischef
+import requests # Importado para verificação de conexão
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+# A LINHA DE IMPORTAÇÃO CIRCULAR FOI REMOVIDA DESTE ARQUIVO
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException # Importado
 
-# (O bot_ncm_editor é importado pelo bot_sischef)
+class BotQRPedir:
+    def __init__(self, usuario, senha, log_callback=None):
+        if not usuario or not senha:
+            raise ValueError("Usuário e senha não podem ser vazios!")
+        self.usuario = usuario
+        self.senha = senha
+        self.driver = None
+        self.log = log_callback if log_callback else print
 
-# --- Variáveis Globais (com progresso) ---
-bot_sischef = None 
-bot_qrpedir = None
-csv_path_sischef = None
-csv_path_qrpedir = None
-csv_path_ncm = None
-inicio_tempo = None
-rodando = False # Lock para o Sischef (Cadastro ou NCM)
-cadastro_qr_rodando = False # Lock para o QRPedir
-
-# --- Variáveis de Progresso ---
-ultimo_indice_sischef = 0
-ultimo_indice_ncm = 0
-ultimo_indice_qrpedir = 0
-# --- FIM ---
-
-# --- Funções ---
-def log_msg(msg):
-    """Adiciona uma mensagem ao 'log' da interface."""
-    try:
-        txt_log.configure(state='normal')
-        txt_log.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {msg}\n")
-        txt_log.see(tk.END)
-        txt_log.configure(state='disabled')
-    except tk.TclError:
-        pass 
-
-# --- Funções do Sischef ---
-
-def iniciar_bot_thread():
-    threading.Thread(target=iniciar_bot, daemon=True).start()
-
-def iniciar_bot():
-    global bot_sischef
-    usuario = entry_usuario.get().strip()
-    senha = entry_senha.get().strip()
-    if not usuario or not senha:
-        log_msg("❌ Informe usuário e senha.")
-        return
-    log_msg(f"🔹 Iniciando bot SISCHEF...")
-    try:
-        if bot_sischef:
-            bot_sischef.fechar()
-        bot_sischef = BotSischef(usuario, senha, log_callback=log_msg) 
-        bot_sischef.iniciar()
-        log_msg("✅ Bot SISCHEF iniciado. Tela de cadastro carregada!")
-    except Exception as e:
-        log_msg(f"❌ Erro ao iniciar bot SISCHEF: {e}")
-
-def iniciar_cadastro_thread():
-    """Modificado para desabilitar o botão"""
-    global rodando
-    if rodando:
-        log_msg("⚠️ Um processo Sischef (NCM ou Cadastro) já está em andamento.")
-        return
-        
-    rodando = True
-    btn_iniciar_cadastro_sischef.config(state='disabled', text="Cadastrando...")
-    btn_iniciar_ncm.config(state='disabled') # Desabilita o outro botão
-    threading.Thread(target=iniciar_cadastro, daemon=True).start()
-
-def iniciar_cadastro():
-    global bot_sischef, csv_path_sischef, inicio_tempo, rodando, ultimo_indice_sischef
-    if not bot_sischef:
-        log_msg("❌ Bot Sischef não iniciado.")
-        rodando = False
-        btn_iniciar_cadastro_sischef.config(state='normal', text="3. Iniciar Cadastro Sischef")
-        btn_iniciar_ncm.config(state='normal')
-        return
-    if not csv_path_sischef:
-        log_msg("❌ CSV de Cadastro Sischef não selecionado.")
-        rodando = False
-        btn_iniciar_cadastro_sischef.config(state='normal', text="3. Iniciar Cadastro Sischef")
-        btn_iniciar_ncm.config(state='normal')
-        return
-
-    log_msg(f"🔹 Iniciando cadastro (Sischef) a partir do item {ultimo_indice_sischef + 1}...")
-    atualizar_contador(ultimo_indice_sischef, 0, 'sischef')
-    inicio_tempo = time.time()
-    threading.Thread(target=atualizar_tempo, daemon=True).start()
-
-    try:
-        bot_sischef.arquivo_csv_cadastro = csv_path_sischef 
-        bot_sischef.start_index = ultimo_indice_sischef # Passa o índice inicial
-        
-        bot_sischef.cadastrar_produtos(
-            callback_progresso=lambda a, t, msg: atualizar_contador(a, t, 'sischef', msg),
-            callback_rodando=get_status_rodando
-        )
-        if get_status_rodando(): # Se 'rodando' ainda for True, ele completou
-            log_msg("✅ Cadastro Sischef concluído!")
-            log_msg(f"⏱️ Tempo total: {obter_tempo_decorrido_str()}")
-            ultimo_indice_sischef = 0 # Reseta o índice se completou
-    except Exception as e:
-        log_msg(f"❌ Erro durante cadastro Sischef: {e}")
-        log_msg(f"ℹ️ Processo pausado. Para retomar, clique em 'Iniciar Cadastro' novamente.")
-    finally:
-        rodando = False
-        btn_iniciar_cadastro_sischef.config(state='normal', text="3. Iniciar Cadastro Sischef")
-        btn_iniciar_ncm.config(state='normal')
-
-def iniciar_edicao_ncm_thread():
-    global rodando
-    if rodando:
-        log_msg("⚠️ Um processo Sischef (NCM ou Cadastro) já está em andamento.")
-        return
-        
-    rodando = True
-    btn_iniciar_ncm.config(state='disabled', text="Editando NCM...")
-    btn_iniciar_cadastro_sischef.config(state='disabled') # Desabilita o outro
-    threading.Thread(target=iniciar_edicao_ncm, daemon=True).start()
-
-def iniciar_edicao_ncm():
-    global bot_sischef, csv_path_ncm, inicio_tempo, rodando, ultimo_indice_ncm
-    if not bot_sischef:
-        log_msg("❌ Bot Sischef não iniciado.")
-        rodando = False
-        btn_iniciar_ncm.config(state='normal', text="5. Iniciar Edição NCM")
-        btn_iniciar_cadastro_sischef.config(state='normal')
-        return
-    if not csv_path_ncm: 
-        log_msg("❌ Nenhum CSV de NCM selecionado.")
-        rodando = False
-        btn_iniciar_ncm.config(state='normal', text="5. Iniciar Edição NCM")
-        btn_iniciar_cadastro_sischef.config(state='normal')
-        return
-    
-    log_msg(f"🔹 Iniciando edição de NCM a partir do item {ultimo_indice_ncm + 1}...")
-    atualizar_contador(ultimo_indice_ncm, 0, 'ncm')
-    inicio_tempo = time.time()
-    log_msg("▶️ Status: RODANDO (EDIÇÃO NCM)")
-    threading.Thread(target=atualizar_tempo, daemon=True).start()
-
-    try:
-        bot_sischef.start_index_ncm = ultimo_indice_ncm # Passa o índice inicial
-        
-        bot_sischef.editar_ncm(
-            arquivo_csv=csv_path_ncm,
-            callback_progresso=lambda a, t, msg: atualizar_contador(a, t, 'ncm', msg)
-        ) 
-        if get_status_rodando():
-            log_msg("✅ Edição de NCM concluída!")
-            log_msg(f"⏱️ Tempo total: {obter_tempo_decorrido_str()}")
-            ultimo_indice_ncm = 0 # Reseta
-    except Exception as e:
-        log_msg(f"❌ Erro fatal durante edição de NCM: {e}")
-        log_msg(f"ℹ️ Processo pausado. Para retomar, clique em 'Iniciar Edição NCM' novamente.")
-    finally:
-        rodando = False
-        log_msg("⏹️ Status: PARADO")
-        btn_iniciar_ncm.config(state='normal', text="5. Iniciar Edição NCM")
-        btn_iniciar_cadastro_sischef.config(state='normal')
-
-# --- Funções do QRPedir ---
-
-def iniciar_bot_qrpedir_thread():
-    threading.Thread(target=iniciar_bot_qrpedir, daemon=True).start()
-
-def iniciar_bot_qrpedir():
-    global bot_qrpedir
-    usuario = entry_usuario.get().strip()
-    senha = entry_senha.get().strip()
-    if not usuario or not senha:
-        log_msg("❌ Informe usuário e senha.")
-        return
-    log_msg(f"🔹 Iniciando bot QRPEDIR...")
-    try:
-        if bot_qrpedir:
-            bot_qrpedir.fechar()
-        bot_qrpedir = BotQRPedir(usuario, senha, log_callback=log_msg)
-        bot_qrpedir.iniciar()
-        log_msg("✅ Bot QRPEDIR iniciado e logado!")
-    except Exception as e:
-        log_msg(f"❌ Erro ao iniciar bot QRPEDIR: {e}")
-
-def iniciar_cadastro_qrpedir_thread():
-    """ Inicia o cadastro QRPedir com lock (trava)."""
-    global cadastro_qr_rodando, inicio_tempo
-    if cadastro_qr_rodando:
-        log_msg("⚠️ O cadastro QRPedir já está em andamento.")
-        return
-    
-    cadastro_qr_rodando = True
-    atualizar_contador(ultimo_indice_qrpedir, 0, 'qrpedir')
-    inicio_tempo = time.time()
-    try:
-        btn_iniciar_cadastro_qr.config(state='disabled', text="Cadastrando...")
-    except (tk.TclError, NameError):
-        log_msg("Erro: Não foi possível desabilitar o botão de cadastro.")
-        cadastro_qr_rodando = False
-        return
-    threading.Thread(target=atualizar_tempo, daemon=True).start()
-    threading.Thread(target=iniciar_cadastro_qrpedir, daemon=True).start()
-
-def iniciar_cadastro_qrpedir():
-    """Lê o CSV, agrupa (Nível 3) e chama o bot."""
-    global bot_qrpedir, csv_path_qrpedir, cadastro_qr_rodando, ultimo_indice_qrpedir
-    
-    if not bot_qrpedir:
-        log_msg("❌ Bot QRPEDIR não iniciado.")
-        cadastro_qr_rodando = False
-        btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
-        return
-    if not csv_path_qrpedir:
-        log_msg("❌ CSV de Cadastro QRPedir não selecionado.")
-        cadastro_qr_rodando = False
-        btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
-        return
-        
-    try:
-        dados = pd.read_csv(csv_path_qrpedir, dtype=str).fillna('') 
-        log_msg(f"Iniciando cadastro no QRPedir. Total de LINHAS lidas: {len(dados)}")
-        
-        # (Mapeamento e Agrupamento - sem alterações)
-        mapeamento = {
-            "ColunaDoGrupo": "Grupo",
-            "ColunaDoNomeDoProduto": "Nome",
-            "ColunaDoCodigo": "CodigoExterno",
-            "ColunaDoPreco": "Preco",
-            "ColunaDaDescricaoOpcional": "Descricao",
-            "ColunaComplemento_S_N": "PossuiComplemento",
-            "descricao_complemento": "descricao_complemento", 
-            "item_descricao": "item_descricao",
-            "item_desc_comp": "item_desc_comp",
-            "item_codigo": "item_codigo",
-            "item_valor": "item_valor"
-        }
-        # Corrigido para insensibilidade de caixa
-        dados.columns = [col.lower() for col in dados.columns]
-        mapeamento_lower = {k.lower(): v for k, v in mapeamento.items()}
-        dados_renomeados = dados.rename(columns=mapeamento_lower)
-        
-        itens_para_cadastrar = []
-        produto_atual = None
-        grupo_complemento_atual = None
-
-        for index, row in dados_renomeados.iterrows():
-            nome_prod = str(row.get("Nome", "")).strip()
-            nome_grup_comp = str(row.get("descricao_complemento", "")).strip()
-            nome_item_comp = str(row.get("item_descricao", "")).strip()
-
-            if nome_prod:
-                if produto_atual:
-                    itens_para_cadastrar.append(produto_atual)
-                produto_atual = row.to_dict()
-                produto_atual["grupos_complemento"] = []
-                grupo_complemento_atual = None
-            elif produto_atual and nome_grup_comp:
-                grupo_complemento_atual = row.to_dict()
-                grupo_complemento_atual["itens"] = []
-                produto_atual["grupos_complemento"].append(grupo_complemento_atual)
-            elif grupo_complemento_atual and nome_item_comp:
-                item_atual = row.to_dict()
-                grupo_complemento_atual["itens"].append(item_atual)
-        if produto_atual:
-            itens_para_cadastrar.append(produto_atual)
-        
-        total = len(itens_para_cadastrar)
-        log_msg(f"✅ Dados agrupados. Total de PRODUTOS a cadastrar: {total}")
-
-        log_msg(f"▶️ Retomando do item {ultimo_indice_qrpedir + 1}...")
-        for i in range(ultimo_indice_qrpedir, total):
-            item_agrupado = itens_para_cadastrar[i]
-            
-            if not cadastro_qr_rodando:
-                log_msg("ℹ️ Cadastro QRPedir interrompido pelo usuário.")
-                break
-                
-            log_msg_qr = f"--- Processando Produto {i + 1}/{total}: {item_agrupado['Nome']} ---"
-            log_msg(log_msg_qr)
-            atualizar_contador(i, total, 'qrpedir', log_msg_qr)
-            
-            try:
-                bot_qrpedir.processar_item_cardapio(item_agrupado)
-                # --- SALVA O PROGRESSO ---
-                ultimo_indice_qrpedir = i + 1
-                atualizar_contador(i + 1, total, 'qrpedir', f"✅ Produto {item_agrupado['Nome']} salvo.")
-            except Exception as e:
-                log_msg(f"❌ ERRO no produto {item_agrupado['Nome']}: {e}")
-                log_msg(f"❌ ITEM PULADO: {item_agrupado['Nome']} (Índice {i + 1})")
-                # Salva o progresso para pular este item na próxima vez
-                ultimo_indice_qrpedir = i + 1 
-                # Continua para o próximo item
-                
-        if ultimo_indice_qrpedir == total and cadastro_qr_rodando:
-            log_msg("✅ Cadastro no QRPedir concluído!")
-            log_msg(f"⏱️ Tempo total: {obter_tempo_decorrido_str()}")
-            ultimo_indice_qrpedir = 0
-        
-    except Exception as e:
-        log_msg(f"❌ Erro fatal durante o cadastro QRPedir: {e}")
-        log_msg(f"ℹ️ Processo pausado no item {ultimo_indice_qrpedir + 1}. Para retomar, clique em 'Iniciar' novamente.")
-    finally:
-        cadastro_qr_rodando = False
+    def _verificar_conexao(self):
+        """Verifica se há conexão ativa com a internet."""
         try:
-            btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
-        except tk.TclError:
-            pass
+            requests.get("http://www.google.com", timeout=5)
+            return True
+        except requests.exceptions.RequestException:
+            return False
 
-# --- Funções Gerais ---
-
-def escolher_csv_sischef():
-    global csv_path_sischef, ultimo_indice_sischef
-    caminho = filedialog.askopenfilename(title="Selecione o CSV de CADASTRO (Sischef)", filetypes=[("Arquivos CSV", "*.csv")])
-    if caminho:
-        if caminho != csv_path_sischef:
-            log_msg("ℹ️ Novo CSV Sischef selecionado. Progresso de retomada foi zerado.")
-            ultimo_indice_sischef = 0
-        csv_path_sischef = caminho
-        log_msg(f"📄 CSV Sischef (Cadastro) selecionado.")
-    else:
-        log_msg("❌ Nenhum arquivo selecionado.")
-
-def escolher_csv_qrpedir():
-    global csv_path_qrpedir, ultimo_indice_qrpedir
-    caminho = filedialog.askopenfilename(title="Selecione o CSV de CADASTRO (QRPedir)", filetypes=[("Arquivos CSV", "*.csv")])
-    if caminho:
-        if caminho != csv_path_qrpedir:
-            log_msg("ℹ️ Novo CSV QRPedir selecionado. Progresso de retomada foi zerado.")
-            ultimo_indice_qrpedir = 0
-        csv_path_qrpedir = caminho
-        log_msg(f"📄 CSV QRPedir (Cadastro) selecionado.")
-    else:
-        log_msg("❌ Nenhum arquivo selecionado.")
-
-def escolher_csv_ncm():
-    global csv_path_ncm, ultimo_indice_ncm
-    caminho = filedialog.askopenfilename(title="Selecione o arquivo CSV para Edição de NCM", filetypes=[("Arquivos CSV", "*.csv")])
-    if caminho:
-        if caminho != csv_path_ncm:
-            log_msg("ℹ️ Novo CSV NCM selecionado. Progresso de retomada foi zerado.")
-            ultimo_indice_ncm = 0
-        csv_path_ncm = caminho
-        log_msg(f"📄 CSV de NCM selecionado.")
-    else:
-        log_msg("❌ Nenhum arquivo selecionado.")
-
-def get_status_rodando():
-    global rodando
-    return rodando
-
-def obter_tempo_decorrido_str():
-    """Retorna o tempo decorrido formatado."""
-    if not inicio_tempo:
-        return "00:00"
-    tempo = int(time.time() - inicio_tempo)
-    minutos, segundos = divmod(tempo, 60)
-    return f"{minutos:02d}:{segundos:02d}"
-
-def atualizar_contador(atual=0, total=0, bot_type=None, log_msg_override=None):
-    """Callback genérica para contador E SALVAR PROGRESSO."""
-    global ultimo_indice_sischef, ultimo_indice_ncm
-    
-    if bot_type == 'sischef':
-        ultimo_indice_sischef = atual
-    elif bot_type == 'ncm':
-        ultimo_indice_ncm = atual
-    elif bot_type == 'qrpedir':
-        pass # QRPedir é salvo no loop principal
+    def iniciar(self):
+        self.log("🔹 Abrindo navegador para QRPedir...")
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        # (Assume que o chromedriver está no PATH ou na mesma pasta)
+        self.driver = webdriver.Chrome(options=options) 
+        self.driver.get("https://station.qrpedir.com/login")
         
-    try:
-        lbl_contador.config(text=f"📦 Itens: {atual}/{total}")
-        if log_msg_override:
-            log_msg(log_msg_override)
-    except tk.TclError:
-        pass
-
-def atualizar_tempo():
-    while rodando or cadastro_qr_rodando:
+        wait = WebDriverWait(self.driver, 10)
+        
         try:
-            lbl_tempo.config(text=f"⏱️ Tempo: {obter_tempo_decorrido_str()}")
+            campo_usuario = wait.until(EC.presence_of_element_located((By.NAME, "username"))) 
+            campo_senha = self.driver.find_element(By.NAME, "password")
+            
+            self.log("... Preenchendo credenciais QRPedir")
+            campo_usuario.send_keys(self.usuario)
+            campo_senha.send_keys(self.senha)
+            
+            botao_login = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+            botao_login.click()
+
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Pedidos')]")))
+            self.log("✅ Login no QRPedir realizado com sucesso!")
+
+            self.log("... Acessando o Cardápio")
+            cardapio_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//p[text()='Cardápio']")))
+            cardapio_link.click()
+
+            wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Categorias')]")))
+            self.log("✅ Página do Cardápio carregada!")
+
+        except Exception as e:
+            self.log(f"❌ Erro ao fazer login ou acessar cardápio no QRPedir: {e}")
+            raise
+
+    def encontrar_grupo(self, nome_do_grupo):
+        """Verifica se um grupo existe e retorna o BOTAO DE EXPANDIR."""
+        nome_grupo_upper = nome_do_grupo.strip().upper() 
+        self.log(f"... Verificando se o grupo '{nome_grupo_upper}' existe...")
+        time.sleep(0.5)
+        
+        try:
+            xpath_h6 = f"//h6[text()='{nome_grupo_upper}']"
+            lista_h6 = self.driver.find_elements(By.XPATH, xpath_h6)
+            
+            if len(lista_h6) > 0:
+                self.log("✅ Grupo encontrado! Retornando o botão de expandir.")
+                h6_element = lista_h6[0]
+                summary_button = h6_element.find_element(By.XPATH, "./ancestor::button[contains(@class, 'MuiAccordionSummary-root')]")
+                return summary_button
+            else:
+                self.log("❌ Grupo não encontrado.")
+                return None
+        except Exception as e:
+            self.log(f"Erro ao encontrar grupo: {e}")
+            return None
+
+    def _fechar_modal_produto(self):
+        """Fecha o pop-up com ActionChains (confiável)."""
+        self.log("... Fechando pop-up do produto com a tecla ESC (via ActionChains)...")
+        try:
+            wait = WebDriverWait(self.driver, 10)
+            action = ActionChains(self.driver)
+            action.send_keys(Keys.ESCAPE).perform()
+            
+            wait.until(EC.invisibility_of_element_located((By.NAME, "nome")))
+            self.log("... Pop-up fechado.")
             time.sleep(1)
-        except tk.TclError:
-             break
-    try:
-        lbl_tempo.config(text="⏱️ Tempo: 00:00")
-    except tk.TclError:
-        pass
+        except Exception as e:
+            self.log(f"❌ Erro ao tentar fechar o pop-up com ESC: {e}")
 
-def pausar_processos():
-    """Para os loops dos bots e registra o tempo."""
-    global rodando, cadastro_qr_rodando
-    log_msg("⏸️ Solicitação de PAUSA recebida...")
-    rodando = False
-    cadastro_qr_rodando = False
-    log_msg(f"⏱️ Processo pausado em: {obter_tempo_decorrido_str()}")
-    
-    try:
-        btn_iniciar_cadastro_sischef.config(state='normal', text="3. Iniciar Cadastro Sischef")
-        btn_iniciar_ncm.config(state='normal', text="5. Iniciar Edição NCM")
-        btn_iniciar_cadastro_qr.config(state='normal', text="3. Iniciar Cadastro QRPedir")
-    except tk.TclError:
-        pass
+    def _cadastrar_grupo_complemento(self, grupo_data):
+        """Cadastra um grupo de complemento (SABORES) e seus itens (MARGHERITA...)."""
+        self.log(f"... Cadastrando Grupo de Complemento: {grupo_data['descricao_complemento']}")
+        try:
+            wait = WebDriverWait(self.driver, 10)
+            
+            add_comp_button = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar Complemento')]"))
+            )
+            add_comp_button.click()
+            time.sleep(1)
 
-def fechar_bots():
-    global bot_sischef, bot_qrpedir, rodando, cadastro_qr_rodando
-    log_msg("ℹ️ Solicitando fechamento...")
-    pausar_processos() # Pausa os loops
-    
-    def fechar_em_thread():
-        if bot_sischef:
-            bot_sischef.fechar()
-            log_msg("✅ Bot SISCHEF encerrado.")
-        if bot_qrpedir:
-            bot_qrpedir.fechar()
-            log_msg("✅ Bot QRPEDIR encerrado.")
-        if not bot_sischef and not bot_qrpedir:
-            log_msg("ℹ️ Nenhum bot estava aberto.")
+            self.log("... Preenchendo dados do Grupo de Complemento")
+            campo_desc_grupo = wait.until(
+                EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Sabores tradicionais']"))
+            )
+            campo_desc_grupo.send_keys(grupo_data['descricao_complemento'])
+            time.sleep(0.3)
+            
+            for i, item in enumerate(grupo_data['itens']):
+                self.log(f"... Adicionando item: {item['item_descricao']}")
+                
+                xpath_anchor = "//input[@placeholder='Ex: MARGHERITA']"
+                campos_atuais = self.driver.find_elements(By.XPATH, xpath_anchor)
+                count_antes = len(campos_atuais)
+
+                if i > 0:
+                    wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar item')]"))).click()
+                    
+                    wait.until(
+                        lambda driver: len(driver.find_elements(By.XPATH, xpath_anchor)) > count_antes
+                    )
+                    self.log(f"... Novos campos de item (total: {count_antes + 1}) apareceram.")
+
+                campos_item_desc = wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_anchor)))
+                campos_item_desc[-1].send_keys(item['item_descricao'])
+                
+                if item.get('item_desc_comp'):
+                    campos_desc_comp = self.driver.find_elements(By.NAME, "descricaoComplementar")
+                    campos_desc_comp[-1].send_keys(item['item_desc_comp'])
+                
+                if item.get('item_codigo'):
+                    campos_codigo = self.driver.find_elements(By.NAME, "codigoExterno")
+                    campos_codigo[-1].send_keys(item['item_codigo'])
+                
+                if item.get('item_valor'):
+                    campos_valor = self.driver.find_elements(By.NAME, "valor")
+                    campo_alvo_valor = campos_valor[-1]
+                    valor_do_csv = str(item['item_valor'])
+                    
+                    campo_alvo_valor.click(); time.sleep(0.1)
+                    campo_alvo_valor.send_keys(Keys.CONTROL, "a"); time.sleep(0.1)
+                    campo_alvo_valor.send_keys(Keys.BACK_SPACE); time.sleep(0.1)
+                    campo_alvo_valor.send_keys(valor_do_csv)
+                
+                time.sleep(0.5)
+            
+            self.log("... Itens preenchidos. Salvando Grupo de Complemento.")
+            wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//button[text()='SALVAR COMPLEMENTO']")
+            )).click()
+            
+            wait.until(EC.invisibility_of_element_located(
+                (By.XPATH, "//button[text()='SALVAR COMPLEMENTO']")
+            ))
+            self.log(f"✅ Grupo de Complemento '{grupo_data['descricao_complemento']}' salvo.")
+            time.sleep(1)
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ Erro ao cadastrar Grupo de Complemento: {e}")
+            return False
+
+    def _acessar_complementos(self, item_data):
+        """Espera a aba carregar, cadastra grupos, clica em SALVAR e fecha com ESC."""
+        self.log("-> Acessando aba 'Complementos'...")
+        try:
+            wait = WebDriverWait(self.driver, 10)
+            
+            aba_complementos = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='Complementos']"))
+            )
+            aba_complementos.click()
+            
+            self.log("... Esperando conteúdo da aba 'Complementos' carregar...")
+            wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar Complemento')]"))
+            )
+            
+            grupos_complemento_data = item_data.get("grupos_complemento", [])
+            self.log(f"✅ Aba 'Complementos' aberta. {len(grupos_complemento_data)} grupos para cadastrar.")
+            
+            for grupo_data in grupos_complemento_data:
+                # Verifica conexão ANTES de cadastrar um grupo de complemento
+                if not self._verificar_conexao():
+                    self.log("🚨 CONEXÃO PERDIDA durante cadastro de complementos. Abortando item.")
+                    raise Exception("Conexão perdida") # O 'finally' vai fechar
+                    
+                self._cadastrar_grupo_complemento(grupo_data)
+
+            self.log("... Todos os grupos de complementos foram processados.")
+            self.log("... Clicando em 'SALVAR' (principal) para salvar as associações.")
+            
+            botao_salvar_principal = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='SALVAR']"))
+            )
+            botao_salvar_principal.click()
+            
+            time.sleep(1.5) # Pausa para salvar
+            
+            self.log("... Salvamento finalizado. Fechando modal.")
+            self._fechar_modal_produto()
+
+        except Exception as e:
+            self.log(f"❌ Erro ao acessar ou finalizar complementos: {e}")
+            self._fechar_modal_produto() # Tenta fechar por segurança
+
+    def _preencher_modal_produto(self, item_data):
+        """Preenche o formulário, salva, e decide se acessa complementos ou fecha."""
+        self.log("... Preenchendo dados do produto no pop-up...")
+        try:
+            wait = WebDriverWait(self.driver, 10)
+            campo_nome = wait.until(EC.presence_of_element_located((By.NAME, "nome")))
+            time.sleep(0.5)
+
+            self.log(f"    -> Nome: {item_data['Nome']}")
+            campo_nome.send_keys(item_data["Nome"])
+            
+            if item_data.get("CodigoExterno"):
+                self.driver.find_element(By.NAME, "codigoExterno").send_keys(item_data["CodigoExterno"])
+            
+            if item_data.get("Preco"):
+                campo_preco = self.driver.find_element(By.NAME, "preco")
+                valor_do_csv = str(item_data['Preco'])
+                campo_preco.click(); time.sleep(0.1)
+                campo_preco.send_keys(Keys.CONTROL, "a"); time.sleep(0.1)
+                campo_preco.send_keys(Keys.BACK_SPACE); time.sleep(0.1)
+                campo_preco.send_keys(valor_do_csv)
+                
+            if item_data.get("Descricao"):
+                self.driver.find_element(By.NAME, "descricao").send_keys(item_data["Descricao"])
+            time.sleep(0.5)
+
+            self.log("... Clicando em 'SALVAR' o produto.")
+            botao_salvar_produto = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='SALVAR']"))
+            )
+            botao_salvar_produto.click()
+
+            self.log("... Aguardando aba 'Complementos' ficar disponível...")
+            wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='Complementos']"))
+            )
+            self.log(f"✅ Produto '{item_data['Nome']}' salvo (fase 1).")
+            
+            if str(item_data.get("PossuiComplemento")).strip().upper() == 'S':
+                self.log("... (S) Encontrado. Acessando complementos.")
+                self._acessar_complementos(item_data)
+            else:
+                self.log("... Produto não possui complementos. Fechando modal.")
+                self._fechar_modal_produto()
+                
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ Erro ao preencher ou salvar o produto: {e}")
+            return False
+
+    def criar_novo_grupo(self, nome_do_grupo):
+        """Clica em 'Novo Grupo', preenche o nome e salva."""
+        self.log("-> Procurando botão 'Novo Grupo'...")
+        try:
+            xpath_novo_grupo = "//button[contains(text(), 'Novo Grupo')]"
+            wait = WebDriverWait(self.driver, 10)
+            botao_novo_grupo = wait.until(
+                EC.element_to_be_clickable((By.XPATH, xpath_novo_grupo))
+            )
+            time.sleep(0.5)
+            botao_novo_grupo.click()
+            time.sleep(1.5) 
+
+            self.log(f"... Preenchendo nome: {nome_do_grupo}")
+            campo_descricao_grupo = wait.until(
+                EC.presence_of_element_located((By.NAME, "descricao")) 
+            )
+            campo_descricao_grupo.send_keys(nome_do_grupo.strip().upper())
+            time.sleep(0.5)
+
+            self.log("... Clicando em 'SALVAR'.")
+            botao_salvar_grupo = wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='SALVAR']"))
+            )
+            botao_salvar_grupo.click()
+            
+            self.log("... Aguardando criação do grupo...")
+            xpath_h6_novo = f"//h6[text()='{nome_do_grupo.strip().upper()}']"
+            wait.until(EC.presence_of_element_located((By.XPATH, xpath_h6_novo)))
+            
+            self.log(f"✅ Grupo '{nome_do_grupo}' criado com sucesso.")
+            return True 
+            
+        except Exception as e:
+            self.log(f"❌ Erro ao tentar criar 'Novo Grupo': {e}")
+            return False 
+
+    def processar_item_cardapio(self, item_data):
+        """Método principal: Encontra/Cria Grupo, Expande, Clica 'Novo Produto'."""
         
-        globals()["bot_sischef"] = None
-        globals()["bot_qrpedir"] = None
+        # --- VERIFICAÇÃO DE CONEXÃO ---
+        if not self._verificar_conexao():
+            self.log("🚨 CONEXÃO PERDIDA. Abortando este item.")
+            raise Exception("Conexão perdida antes de processar o item.")
+        # --- FIM DA VERIFICAÇÃO ---
 
-    threading.Thread(target=fechar_em_thread, daemon=True).start()
+        nome_do_grupo = item_data["Grupo"]
+        self.log(f"--- Processando Produto: {item_data['Nome']} (Grupo: {nome_do_grupo}) ---")
+        
+        grupo_button = self.encontrar_grupo(nome_do_grupo)
+        
+        if not grupo_button:
+            self.log(f"❌ Grupo '{nome_do_grupo}' não encontrado.")
+            sucesso_criacao = self.criar_novo_grupo(nome_do_grupo)
+            if not sucesso_criacao:
+                 self.log("❌ Falha ao criar o grupo. Abortando este item.")
+                 return # Pula para o próximo item
+            time.sleep(1) 
+            grupo_button = self.encontrar_grupo(nome_do_grupo)
+            if not grupo_button:
+                self.log("❌ Erro: Não foi possível encontrar o grupo após criá-lo.")
+                return # Pula para o próximo item
 
-def ao_fechar_janela():
-    fechar_bots()
-    root.destroy()
+        try:
+            self.log(f"-> Expandindo grupo '{nome_do_grupo}'...")
+            if grupo_button.get_attribute("aria-expanded") == "false":
+                grupo_button.click()
+                time.sleep(1.5)
+            else:
+                self.log("... Grupo já estava expandido.")
 
-# --- GUI (Layout Novo e Limpo) ---
-root = tk.Tk()
-root.title("Bot Sischef & QRPedir - Cadastro via CSV")
-root.protocol("WM_DELETE_WINDOW", ao_fechar_janela)
+            accordion_root = grupo_button.find_element(By.XPATH, "./ancestor::div[contains(@class, 'MuiAccordion-root')]")
+            xpath_novo_produto = ".//button[text()='Novo Produto']"
+            wait = WebDriverWait(accordion_root, 10)
+            botao_novo_prod = wait.until(EC.element_to_be_clickable((By.XPATH, xpath_novo_produto)))
+            
+            self.log("-> Clicando em 'Novo Produto'...")
+            time.sleep(0.5)
+            botao_novo_prod.click()
+            time.sleep(1)
+            
+            self._preencher_modal_produto(item_data)
+            
+        except Exception as e:
+            self.log(f"❌ Erro ao expandir ou clicar em 'Novo Produto': {e}")
+            # Tenta fechar o modal (caso ele esteja aberto) para não travar o próximo
+            self._fechar_modal_produto()
+            raise e # Lança o erro para a interface
 
-frame_status = tk.Frame(root)
-frame_status.grid(row=0, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
-lbl_tempo = tk.Label(frame_status, text="⏱️ Tempo: 00:00", font=("Arial", 10, "bold"))
-lbl_tempo.pack(side=tk.LEFT, padx=5)
-lbl_contador = tk.Label(frame_status, text="📦 Itens: 0/0", font=("Arial", 10, "bold"))
-lbl_contador.pack(side=tk.RIGHT, padx=5)
-
-frame_login = tk.LabelFrame(root, text="Login", padx=10, pady=10)
-frame_login.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
-tk.Label(frame_login, text="Usuário:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
-entry_usuario = tk.Entry(frame_login, width=30)
-entry_usuario.grid(row=0, column=1, padx=5, pady=5)
-tk.Label(frame_login, text="Senha:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
-entry_senha = tk.Entry(frame_login, width=30, show="*")
-entry_senha.grid(row=1, column=1, padx=5, pady=5)
-
-frame_acoes = tk.Frame(root)
-frame_acoes.grid(row=2, column=0, columnspan=3, padx=10, pady=5)
-
-frame_sischef = tk.LabelFrame(frame_acoes, text="Sischef", padx=10, pady=10)
-frame_sischef.grid(row=0, column=0, padx=5, pady=5, sticky="ns")
-tk.Button(frame_sischef, text="1. Iniciar Bot Sischef", command=iniciar_bot_thread, bg="green", fg="white", width=25).pack(pady=5)
-tk.Button(frame_sischef, text="2. Escolher CSV (Cadastro)", command=escolher_csv_sischef, bg="blue", fg="white", width=25).pack(pady=5)
-btn_iniciar_cadastro_sischef = tk.Button(frame_sischef, text="3. Iniciar Cadastro Sischef", command=iniciar_cadastro_thread, bg="orange", fg="white", width=25)
-btn_iniciar_cadastro_sischef.pack(pady=5)
-tk.Button(frame_sischef, text="4. Escolher CSV (NCM)", command=escolher_csv_ncm, bg="gray", fg="white", width=25).pack(pady=(15, 5))
-btn_iniciar_ncm = tk.Button(frame_sischef, text="5. Iniciar Edição NCM", command=iniciar_edicao_ncm_thread, bg="orange", fg="white", width=25)
-btn_iniciar_ncm.pack(pady=5)
-
-frame_qrpedir = tk.LabelFrame(frame_acoes, text="QRPedir", padx=10, pady=10)
-frame_qrpedir.grid(row=0, column=1, padx=5, pady=5, sticky="ns")
-tk.Button(frame_qrpedir, text="1. Iniciar Bot QRPedir", command=iniciar_bot_qrpedir_thread, bg="#00AEEF", fg="white", width=25).pack(pady=5)
-tk.Button(frame_qrpedir, text="2. Escolher CSV (Cadastro)", command=escolher_csv_qrpedir, bg="blue", fg="white", width=25).pack(pady=5)
-btn_iniciar_cadastro_qr = tk.Button(frame_qrpedir, text="3. Iniciar Cadastro QRPedir", command=iniciar_cadastro_qrpedir_thread, bg="#00AEEF", fg="black", width=25)
-btn_iniciar_cadastro_qr.pack(pady=5)
-
-frame_global = tk.LabelFrame(frame_acoes, text="Geral", padx=10, pady=10)
-frame_global.grid(row=0, column=2, padx=5, pady=5, sticky="ns")
-tk.Button(frame_global, text="Pausar Processos", command=pausar_processos, bg="yellow", fg="black", width=25).pack(pady=5)
-tk.Button(frame_global, text="Fechar Navegadores", command=fechar_bots, bg="red", fg="white", width=25).pack(pady=(15, 5))
-
-frame_log = tk.LabelFrame(root, text="Log de Atividades", padx=10, pady=10)
-frame_log.grid(row=3, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
-txt_log = scrolledtext.ScrolledText(frame_log, width=100, height=15, state='disabled', wrap=tk.WORD)
-txt_log.pack(fill="both", expand=True)
-
-root.grid_columnconfigure(0, weight=1)
-frame_log.grid_columnconfigure(0, weight=1)
-
-root.mainloop()
+    def fechar(self):
+        """Fecha o navegador QRPedir."""
+        if self.driver:
+            try:
+                self.driver.quit()
+                self.log("✅ Navegador QRPedir fechado.")
+            except Exception as e:
+                self.log(f"❌ Erro ao fechar QRPedir: {e}")
+            finally:
+                self.driver = None
