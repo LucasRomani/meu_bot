@@ -1,14 +1,13 @@
 import time
 import pandas as pd
-import requests # Importado para verificação de conexão
+import requests 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-# A LINHA DE IMPORTAÇÃO CIRCULAR FOI REMOVIDA DESTE ARQUIVO
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import TimeoutException # Importado
+from selenium.common.exceptions import TimeoutException 
 
 class BotQRPedir:
     def __init__(self, usuario, senha, log_callback=None):
@@ -20,7 +19,6 @@ class BotQRPedir:
         self.log = log_callback if log_callback else print
 
     def _verificar_conexao(self):
-        """Verifica se há conexão ativa com a internet."""
         try:
             requests.get("http://www.google.com", timeout=5)
             return True
@@ -31,7 +29,6 @@ class BotQRPedir:
         self.log("🔹 Abrindo navegador para QRPedir...")
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
-        # (Assume que o chromedriver está no PATH ou na mesma pasta)
         self.driver = webdriver.Chrome(options=options) 
         self.driver.get("https://station.qrpedir.com/login")
         
@@ -99,7 +96,7 @@ class BotQRPedir:
             self.log(f"❌ Erro ao tentar fechar o pop-up com ESC: {e}")
 
     def _cadastrar_grupo_complemento(self, grupo_data):
-        """Cadastra um grupo de complemento (SABORES) e seus itens (MARGHERITA...)."""
+        """Cadastra um grupo de complemento."""
         self.log(f"... Cadastrando Grupo de Complemento: {grupo_data['descricao_complemento']}")
         try:
             wait = WebDriverWait(self.driver, 10)
@@ -117,6 +114,7 @@ class BotQRPedir:
             campo_desc_grupo.send_keys(grupo_data['descricao_complemento'])
             time.sleep(0.3)
             
+            # Loop para cadastrar os ITENS 
             for i, item in enumerate(grupo_data['itens']):
                 self.log(f"... Adicionando item: {item['item_descricao']}")
                 
@@ -127,6 +125,7 @@ class BotQRPedir:
                 if i > 0:
                     wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar item')]"))).click()
                     
+                    # CORREÇÃO DA DUPLICAÇÃO
                     wait.until(
                         lambda driver: len(driver.find_elements(By.XPATH, xpath_anchor)) > count_antes
                     )
@@ -191,10 +190,9 @@ class BotQRPedir:
             self.log(f"✅ Aba 'Complementos' aberta. {len(grupos_complemento_data)} grupos para cadastrar.")
             
             for grupo_data in grupos_complemento_data:
-                # Verifica conexão ANTES de cadastrar um grupo de complemento
                 if not self._verificar_conexao():
                     self.log("🚨 CONEXÃO PERDIDA durante cadastro de complementos. Abortando item.")
-                    raise Exception("Conexão perdida") # O 'finally' vai fechar
+                    raise Exception("Conexão perdida") 
                     
                 self._cadastrar_grupo_complemento(grupo_data)
 
@@ -213,7 +211,7 @@ class BotQRPedir:
 
         except Exception as e:
             self.log(f"❌ Erro ao acessar ou finalizar complementos: {e}")
-            self._fechar_modal_produto() # Tenta fechar por segurança
+            self._fechar_modal_produto()
 
     def _preencher_modal_produto(self, item_data):
         """Preenche o formulário, salva, e decide se acessa complementos ou fecha."""
@@ -253,7 +251,10 @@ class BotQRPedir:
             )
             self.log(f"✅ Produto '{item_data['Nome']}' salvo (fase 1).")
             
-            if str(item_data.get("PossuiComplemento")).strip().upper() == 'S':
+            # Verifica S ou N
+            possui = str(item_data.get("PossuiComplemento", "N")).strip().upper()
+            
+            if possui == 'S':
                 self.log("... (S) Encontrado. Acessando complementos.")
                 self._acessar_complementos(item_data)
             else:
@@ -264,7 +265,7 @@ class BotQRPedir:
             
         except Exception as e:
             self.log(f"❌ Erro ao preencher ou salvar o produto: {e}")
-            return False
+            raise e 
 
     def criar_novo_grupo(self, nome_do_grupo):
         """Clica em 'Novo Grupo', preenche o nome e salva."""
@@ -272,11 +273,20 @@ class BotQRPedir:
         try:
             xpath_novo_grupo = "//button[contains(text(), 'Novo Grupo')]"
             wait = WebDriverWait(self.driver, 10)
+
+            # --- CORREÇÃO: Scroll e Clique JS ---
             botao_novo_grupo = wait.until(
-                EC.element_to_be_clickable((By.XPATH, xpath_novo_grupo))
+                EC.presence_of_element_located((By.XPATH, xpath_novo_grupo))
             )
-            time.sleep(0.5)
-            botao_novo_grupo.click()
+            
+            self.log("... Rolando o botão 'Novo Grupo' para a vista.")
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", botao_novo_grupo)
+            time.sleep(1.0) 
+            
+            self.log("... Clicando em 'Novo Grupo' via JavaScript.")
+            self.driver.execute_script("arguments[0].click();", botao_novo_grupo)
+            # --- FIM DA CORREÇÃO ---
+            
             time.sleep(1.5) 
 
             self.log(f"... Preenchendo nome: {nome_do_grupo}")
@@ -306,11 +316,9 @@ class BotQRPedir:
     def processar_item_cardapio(self, item_data):
         """Método principal: Encontra/Cria Grupo, Expande, Clica 'Novo Produto'."""
         
-        # --- VERIFICAÇÃO DE CONEXÃO ---
         if not self._verificar_conexao():
             self.log("🚨 CONEXÃO PERDIDA. Abortando este item.")
             raise Exception("Conexão perdida antes de processar o item.")
-        # --- FIM DA VERIFICAÇÃO ---
 
         nome_do_grupo = item_data["Grupo"]
         self.log(f"--- Processando Produto: {item_data['Nome']} (Grupo: {nome_do_grupo}) ---")
@@ -322,12 +330,12 @@ class BotQRPedir:
             sucesso_criacao = self.criar_novo_grupo(nome_do_grupo)
             if not sucesso_criacao:
                  self.log("❌ Falha ao criar o grupo. Abortando este item.")
-                 return # Pula para o próximo item
+                 raise Exception(f"Falha ao criar grupo '{nome_do_grupo}'")
             time.sleep(1) 
             grupo_button = self.encontrar_grupo(nome_do_grupo)
             if not grupo_button:
                 self.log("❌ Erro: Não foi possível encontrar o grupo após criá-lo.")
-                return # Pula para o próximo item
+                return 
 
         try:
             self.log(f"-> Expandindo grupo '{nome_do_grupo}'...")
@@ -351,9 +359,8 @@ class BotQRPedir:
             
         except Exception as e:
             self.log(f"❌ Erro ao expandir ou clicar em 'Novo Produto': {e}")
-            # Tenta fechar o modal (caso ele esteja aberto) para não travar o próximo
             self._fechar_modal_produto()
-            raise e # Lança o erro para a interface
+            raise e
 
     def fechar(self):
         """Fecha o navegador QRPedir."""

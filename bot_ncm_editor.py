@@ -5,14 +5,16 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-import requests # Adicionado para verificação de conexão
+import requests 
 
 class BotNCMEditor:
     
     URL_LISTAGEM_PRODUTOS = "https://sistema.sischef.com/admin/produtos/produtoList.jsf"
     URL_EDICAO_PRODUTO = "https://sistema.sischef.com/admin/produtos/produto.jsf"
+    
     ID_CAMPO_BUSCA = "_input-busca-generica_" 
     ID_CAMPO_NCM = "tabSessoesProduto:ncm" 
+    
     SELECTOR_BOTAO_EDITAR = "//a[contains(text(), 'Editar') and contains(@class, 'btn')]" 
     SELECTOR_ERRO_GLOBAL = "//div[contains(@class, 'ui-growl-item-container') and contains(@class, 'ui-state-error')]"
 
@@ -47,13 +49,15 @@ class BotNCMEditor:
             if df.empty or len(df.columns) < 2:
                  raise ValueError("CSV inválido. O arquivo deve ter pelo menos 2 colunas: ID (1ª) e NCM (2ª).") 
                  
-            # Renomeia com base na posição
+            # Assume que a 1ª coluna é o ID e a 2ª é o novo NCM
             df.columns = ['ID', 'NCM_NOVO'] + list(df.columns[2:])
                  
             total_produtos = len(df)
+            produtos_atualizados = self.start_index # Ajuste para o contador
+            
+            self.log(f"▶️ Retomando edição de NCM do item {self.start_index + 1}...")
             
             # 3. Iterar sobre os produtos (começando do start_index)
-            self.log(f"▶️ Retomando edição de NCM do item {self.start_index + 1}...")
             for index in range(self.start_index, total_produtos):
                 row = df.iloc[index]
                 
@@ -63,7 +67,7 @@ class BotNCMEditor:
                     if self.callback_progresso:
                         self.callback_progresso(index, total_produtos, None)
                     while not self._verificar_conexao():
-                        time.sleep(10) # Espera 10s
+                        time.sleep(10)
                     self.log("🟢 CONEXÃO RESTABELECIDA. RETOMANDO...")
                 
                 # 1. Navegar para a tela de listagem (a cada item, para garantir)
@@ -72,30 +76,49 @@ class BotNCMEditor:
                 id_produto = str(row['ID']).strip()
                 ncm_novo = str(row['NCM_NOVO']).strip()
                 
+                # Pula linhas onde o NCM_NOVO está vazio
+                if not ncm_novo:
+                    self.log(f"⚠️ NCM vazio para o ID {id_produto}. Pulando linha {index + 1}.")
+                    continue
+                
                 log_msg_ncm = f"⚙️ Processando {index + 1}/{total_produtos}: ID {id_produto} | Novo NCM: {ncm_novo}"
                 self.log(log_msg_ncm)
                 if self.callback_progresso:
                     self.callback_progresso(index + 1, total_produtos, None) # Só contador
                 
                 try:
+                    # a) Buscar o produto
                     self._buscar_produto_por_id(id_produto)
+                    
+                    # b) Clicar em Editar e navegar para a tela de edição
                     self._clicar_em_editar(id_produto)
+                    
+                    # c) ATUALIZAR NCM E SALVAR (Com verificação de erro)
                     self._atualizar_ncm_e_salvar(id_produto, ncm_novo)
+                    
+                    # 4. Confirmação e loop
+                    produtos_atualizados += 1
                     
                     log_msg_ncm = f"✅ NCM do ID {id_produto} atualizado para {ncm_novo}."
                     if self.callback_progresso:
                         self.callback_progresso(index + 1, total_produtos, log_msg_ncm)
                     
-                    time.sleep(1) 
+                    time.sleep(1) # Pequeno delay antes da próxima iteração
 
                 except Exception as e:
                     # --- MODIFICADO: PULA O ITEM ---
                     log_msg_erro = f"❌ Falha ao processar ID {id_produto}: {e}"
                     self.log(log_msg_erro)
                     self.log(f"❌ ITEM PULADO: ID {id_produto} (Índice {index + 1})")
+                    
                     if self.callback_progresso:
                         self.callback_progresso(index + 1, total_produtos, log_msg_erro)
                     # Continua para o próximo item do loop 'for'
+            
+            # Se o loop terminou, reseta o índice (na próxima vez, começa do zero)
+            self.start_index = 0
+            if self.callback_progresso:
+                self.callback_progresso(total_produtos, total_produtos, None) # Garante que o contador mostre 100%
 
             self.log("✅ Edição de NCM de todos os produtos concluída!")
             return True
@@ -103,7 +126,6 @@ class BotNCMEditor:
         except Exception as e:
             self.log(f"Erro fatal no BotNCMEditor: {e}")
             raise e # Lança o erro para a interface
-
     
     def _navegar_para_listagem(self):
         """Acessa a URL da listagem de produtos e garante que a página carregou."""
@@ -122,9 +144,11 @@ class BotNCMEditor:
         try:
             self.wait.until(EC.url_to_be(self.URL_LISTAGEM_PRODUTOS))
             self.wait.until(EC.visibility_of_element_located((By.ID, self.ID_CAMPO_BUSCA)))
-        except Exception as e:
-            self.log(f"⚠️ Falha ao carregar a página de listagem: {e}")
-            raise Exception("Não foi possível carregar a página de listagem de produtos.")
+            self.log("Página de listagem carregada.")
+        except TimeoutException:
+            self.log("⚠️ Timeout ao carregar listagem. Tentando novamente...")
+            self.driver.refresh()
+            self.wait.until(EC.visibility_of_element_located((By.ID, self.ID_CAMPO_BUSCA)))
         
     def _buscar_produto_por_id(self, id_produto):
         """Digita o ID do produto e pressiona ENTER no campo de busca."""
@@ -134,15 +158,18 @@ class BotNCMEditor:
             EC.visibility_of_element_located((By.ID, self.ID_CAMPO_BUSCA))
         )
         
+        # Limpeza Robusta do Campo
         campo_busca.send_keys(Keys.CONTROL, 'a') 
         campo_busca.send_keys(Keys.DELETE)      
         time.sleep(0.3) 
         
+        # Digitar o ID e pressionar ENTER
         campo_busca.send_keys(str(id_produto))
         time.sleep(0.5)
         campo_busca.send_keys(Keys.ENTER)
         
-        time.sleep(1) # Espera a busca (AJAX) terminar
+        # Espera Crítica para a busca terminar
+        time.sleep(1) 
 
     def _clicar_em_editar(self, id_produto):
         """Localiza e clica no botão 'Editar' após o resultado da busca."""
@@ -156,22 +183,25 @@ class BotNCMEditor:
             botao_editar.click()
             
             # Espera a URL de edição carregar (o ID pode ou não estar na URL)
-            self.wait.until(EC.url_contains("produto.jsf"))
+            wait_url = WebDriverWait(self.driver, 10)
+            wait_url.until(EC.url_contains("produto.jsf"))
             
-            # Espera o campo de NCM
+            # Espera o campo de NCM para garantir que a tela de edição está pronta
             self.wait.until(
                 EC.presence_of_element_located((By.ID, self.ID_CAMPO_NCM))
             )
+            
             self.log(f"✅ Navegado para a tela de edição do produto ID {id_produto}.")
             
         except Exception as e:
             raise Exception(f"❌ Falha ao clicar em 'Editar' para o produto {id_produto}. O produto existe? Erro: {e}")
 
     def _atualizar_ncm_e_salvar(self, id_produto, ncm_novo):
-        """Preenche o campo NCM, salva (Alt+S) e verifica erros."""
+        """Preenche o campo NCM, salva usando Alt + S e retorna para a lista."""
         try:
             self.log(f"✏️ Atualizando NCM para: {ncm_novo}")
             
+            # 1. Localizar e preencher o campo NCM
             campo_ncm = self.wait.until(
                 EC.presence_of_element_located((By.ID, self.ID_CAMPO_NCM))
             )
@@ -180,52 +210,56 @@ class BotNCMEditor:
             time.sleep(0.5)
             campo_ncm.send_keys(ncm_novo)
             
+            # Dispara o evento de 'onchange' (PrimeFaces)
             campo_ncm.send_keys(Keys.TAB) 
-            time.sleep(1.5)
+            time.sleep(0.8) # Aumenta a espera para processamento JS
             
-            # Foco no campo descrição para Alt+S
+            # 2. Salvar usando Alt + S
+            
+            # Coloca o foco no campo de descrição para garantir que o atalho Alt+S funcione
             self.wait.until(
                 EC.presence_of_element_located((By.ID, "tabSessoesProduto:descricao"))
             ).click()
+            
             time.sleep(0.5)
             
+            # Envia o atalho ALT + S a partir do corpo da página
             self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ALT, 's')
             
-            time.sleep(2) # Espera mensagem de erro/sucesso
+            # Tempo para a mensagem de erro/sucesso aparecer
+            time.sleep(0.8) 
             
+            # =======================================================
+            # BLOCO DE VERIFICAÇÃO DE ERRO E PAUSA (CRÍTICO)
+            # =======================================================
             try:
+                # Espera pelo elemento de erro por até 1 segundos
                 erro_container = WebDriverWait(self.driver, 1).until(
                     EC.presence_of_element_located((By.XPATH, self.SELECTOR_ERRO_GLOBAL))
                 )
                 
-                erro_msg = ""
+                # Se o erro for encontrado:
+                erro_msg = "Mensagem de erro não capturada."
                 try:
-                    erro_msg_elem = erro_container.find_element(By.TAG_NAME, 'p')
-                    erro_msg = erro_msg_elem.text
+                    erro_msg = erro_container.find_element(By.TAG_NAME, 'p').text
                 except:
-                    erro_msg = "Mensagem de erro não capturada."
+                    pass
                     
                 self.log(f"🚨 ERRO FATAL DETECTADO na edição do NCM para ID {id_produto}.")
                 self.log(f"Mensagem do SisChef: {erro_msg}")
+                
+                # Pausa a execução do bot
                 raise Exception(f"ERRO DE VALIDAÇÃO NA EDIÇÃO NCM: {erro_msg}. Processo pausado no ID: {id_produto}")
                 
             except TimeoutException:
-                pass # Sem erro, sucesso
+                # Nenhuma mensagem de erro apareceu após 3s -> Sucesso
+                pass 
             
-            # Verificação Pós-Salvamento
-            try:
-                # Espera o redirecionamento
-                self.wait.until(
-                    EC.url_to_be(self.URL_LISTAGEM_PRODUTOS)
-                )
-            except Exception:
-                self.log("⚠️ Redirecionamento automático falhou. Navegando manualmente para a lista.")
-                self.driver.get(self.URL_LISTAGEM_PRODUTOS)
-                self.wait.until(
-                    EC.url_to_be(self.URL_LISTAGEM_PRODUTOS)
-                )
-                
-            self.log(f"✅ NCM do produto ID {id_produto} salvo com sucesso!")
+                self.log("✅ Salvo. Voltando para a lista...")
+                self.driver.get(self.URL_LISTAGEM_PRODUTOS)    
+
+                self.log(f"✅ NCM do produto ID {id_produto} salvo com sucesso!")
 
         except Exception as e:
+            # Captura o erro e relança-o para o método editar_ncm principal
             raise Exception(f"❌ Falha ao atualizar NCM ou salvar produto ID {id_produto}. Erro: {e}")

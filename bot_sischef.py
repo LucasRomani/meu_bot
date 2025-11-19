@@ -15,20 +15,29 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from bot_ncm_editor import BotNCMEditor 
 
 class BotSischef:
+    # --- CONSTANTES ---
     URL_VERIFICACAO_CONEXAO = "http://www.google.com" 
     URL_LISTAGEM_PRODUTOS = "https://sistema.sischef.com/admin/produtos/produtoList.jsf"
     URL_CADASTRO_PRODUTO = "https://sistema.sischef.com/admin/produtos/produto.jsf"
+    
     ID_CAMPO_BUSCA_LISTAGEM = "_input-busca-generica_" 
+    
+    # Seletor para QUALQUER pop-up de mensagem (erro, aviso, sucesso)
     SELECTOR_MENSAGEM_POPUP = "//div[contains(@class, 'ui-growl-item-container')]"
-    SELECTOR_ERRO_GLOBAL = f"{SELECTOR_MENSAGEM_POPUP}[contains(@class, 'ui-state-error')]"
+    SELECTOR_ERRO_GLOBAL = f"{SELECTOR_MENSAGEM_POPUP}[contains(@class, 'ui-state-error')]" # Apenas Erros
+    
+    # Seletor do pop-up modal que trava a tela
     SELECTOR_MODAL_INTERCEPT = "div[id$='ajaxErrorHandlerDialog_modal']"
+
 
     def __init__(self, usuario, senha, log_callback=None):
         if not usuario or not senha:
             raise ValueError("Usuário e senha não podem ser vazios!")
         self.usuario = usuario
         self.senha = senha
+        
         self.arquivo_csv_cadastro = None 
+        
         self.driver = None
         self.rodando = True
         self.start_index = 0 # Para cadastro
@@ -37,6 +46,7 @@ class BotSischef:
         self.log = log_callback if log_callback else print
 
     def _verificar_conexao(self):
+        """Verifica se há conexão ativa com a internet."""
         try:
             requests.get(self.URL_VERIFICACAO_CONEXAO, timeout=5)
             return True
@@ -58,8 +68,10 @@ class BotSischef:
             except Exception as e_fallback:
                  raise Exception(f"Erro ao iniciar o bot (Chrome/Driver): {e_fallback}")
 
+        # 1. Login
         self.driver.get("https://sistema.sischef.com")
         wait = WebDriverWait(self.driver, 10) 
+        
         wait.until(EC.presence_of_element_located((By.ID, "j_username")))
         time.sleep(1)
 
@@ -68,7 +80,8 @@ class BotSischef:
         time.sleep(0.5)
         self.driver.find_element(By.ID, "login").click()
 
-        self.log(f"🔄 Redirecionando para a lista de produtos...")
+        # 2. VALIDAÇÃO PÓS-LOGIN
+        self.log(f"🔄 Redirecionando para a lista de produtos: {self.URL_LISTAGEM_PRODUTOS}")
         self.driver.get(self.URL_LISTAGEM_PRODUTOS)
         
         try:
@@ -77,7 +90,7 @@ class BotSischef:
             )
             self.log("✅ Login realizado e tela de listagem de produtos carregada.")
         except TimeoutException:
-            raise Exception(f"Timeout: A tela de listagem de produtos não carregou.")
+            raise Exception(f"Timeout: A tela de listagem de produtos não carregou. Verifique as credenciais.")
             
     def cadastrar_produtos(self, callback_progresso=None, callback_rodando=None):
         if not self.arquivo_csv_cadastro: 
@@ -85,11 +98,13 @@ class BotSischef:
             return
 
         try:
+            # Força a leitura de colunas problemáticas como string
             dados = pd.read_csv(self.arquivo_csv_cadastro, 
                                 dtype={'Grupo': str, 'NCM': str, 'UnidadeMedida': str, 'CodigoBarras': str})
         except Exception as e:
             raise ValueError(f"❌ Erro ao ler o CSV: {e}")
 
+        # 1. Navega para a tela de cadastro e clica em "Novo"
         self.driver.get(self.URL_CADASTRO_PRODUTO)
         wait = WebDriverWait(self.driver, 10)
         try:
@@ -150,6 +165,7 @@ class BotSischef:
             row = dados.iloc[i]
             produto_descricao = str(row.get('Descricao', f'ITEM {i+1} SEM DESCRIÇÃO')).strip() 
 
+            # Bloco de verificação de conexão
             if not self._verificar_conexao():
                 self.log("🚨 CONEXÃO PERDIDA. PAUSANDO...")
                 if callback_progresso:
@@ -169,42 +185,52 @@ class BotSischef:
             log_msg_sischef = f"🔹 Cadastrando produto {i+1}/{total}: {produto_descricao}"
             self.log(log_msg_sischef)
             if callback_progresso:
-                callback_progresso(i + 1, total, None)
+                callback_progresso(i + 1, total, None) # Atualiza contador sem log
 
             try:
                 codigo_barras_original = str(row.get("CodigoBarras", "")).strip()
                 # Passa apenas as colunas que o CSV realmente tem
                 self._preencher_e_salvar_sischef(wait, row, colunas_encontradas)
 
+                # --- VERIFICAÇÃO DE ERRO/DUPLICATA ---
                 try:
+                    # Espera por QUALQUER mensagem de pop-up (Erro ou Aviso)
                     msg_container = WebDriverWait(self.driver, 1.5).until(
                         EC.presence_of_element_located((By.XPATH, self.SELECTOR_MENSAGEM_POPUP))
                     )
+                    
                     msg_text = msg_container.find_element(By.TAG_NAME, 'p').text
                     
+                    # LÓGICA DE CORREÇÃO DE CÓDIGO DE BARRAS
                     if "código de barras já cadastrado" in msg_text.lower():
                         self.log(f"🔔 Duplicata detectada: {msg_text}")
                         self._tentar_novo_codigo_barras(wait, row, colunas_encontradas, codigo_barras_original)
                     else:
+                        # É um erro vermelho e fatal
                         raise Exception(f"ERRO DE VALIDAÇÃO: {msg_text}.")
 
                 except TimeoutException:
+                    # Nenhum pop-up apareceu = Sucesso
                     self.log("💾 Produto salvo.")
                 
                 time.sleep(0.5)
 
+                # --- CLICAR EM "NOVO" ---
                 try:
                     botao_novo = WebDriverWait(self.driver, 1.5).until(
                         EC.element_to_be_clickable((By.CSS_SELECTOR, "a.mui-btn.mui-btn-text"))
                     )
                     botao_novo.click()
-                    time.sleep(0.8)
+                    time.sleep(0.8) # Espera a tela recarregar
                 
+                # --- CORREÇÃO: Pega o erro 'ElementClickInterceptedException' ---
                 except ElementClickInterceptedException as e_click:
                     self.log(f"⚠️ Pop-up de erro interceptou o clique em 'Novo'. Tentando fechar...")
                     try:
+                        # Tenta fechar o modal de erro (que é o 'ajaxErrorHandlerDialog_modal')
                         self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
                         time.sleep(1)
+                        # Tenta clicar em "Novo" novamente após fechar
                         botao_novo = WebDriverWait(self.driver, 1.5).until(
                             EC.element_to_be_clickable((By.CSS_SELECTOR, "a.mui-btn.mui-btn-text"))
                         )
@@ -217,10 +243,12 @@ class BotSischef:
                         # Recarrega a página para garantir um estado limpo
                         self.driver.get(self.URL_CADASTRO_PRODUTO)
                         wait.until(EC.presence_of_element_located((By.ID, "tabSessoesProduto:descricao")))
-                
+                # --- FIM DA CORREÇÃO ---
+
                 # Atualiza o Índice e a Mensagem de Sucesso
                 produto_index_atual += 1 
                 log_msg_sischef = f"✅ Produto {i+1}/{total} SALVO com sucesso!"
+                # self.log(log_msg_sischef) # Já logado pelo callback
                 if callback_progresso:
                     callback_progresso(i + 1, total, log_msg_sischef)
 
@@ -240,6 +268,10 @@ class BotSischef:
                 except Exception as e_reload:
                     raise Exception(f"❌ Falha crítica ao tentar recarregar a página após erro. {e_reload}")
 
+        # Se o loop terminou (não foi pausado), reseta o índice
+        if produto_index_atual == total and is_rodando():
+            self.start_index = 0
+            
         self.log("✅ Cadastro de todos os produtos concluído!")
         return True
 
@@ -256,7 +288,7 @@ class BotSischef:
                     valor_numerico = float(valor.replace(",", "."))
                     valor = f"{valor_numerico:.2f}".replace(".", ",") 
                 except ValueError:
-                    self.log(f"⚠️ Valor inválido no campo {col_csv}: '{valor}'. Usando '0,00'.")
+                    # self.log(f"⚠️ Valor inválido no campo {col_csv}: '{valor}'. Usando '0,00'.")
                     valor = "0,00"
 
             input_elem = wait.until(EC.element_to_be_clickable((By.ID, campo_id)))
@@ -279,18 +311,21 @@ class BotSischef:
                 time.sleep(1)
                 input_elem.send_keys(u'\ue007')
         
+        # Salvar via Alt + S
         self.driver.find_element(By.ID, "tabSessoesProduto:descricao").click()
         time.sleep(0.3)
         self.driver.find_element(By.ID, "tabSessoesProduto:descricao").send_keys(Keys.ALT, "s")
 
     def _tentar_novo_codigo_barras(self, wait, row_data, mapeamento_encontrado, codigo_original):
-        """Tenta cadastrar novamente com um código de barras aleatório."""
+        """[NOVA FUNÇÃO] Tenta cadastrar novamente com um código de barras aleatório."""
         try:
             novo_codigo = f"{codigo_original}-{random.randint(100, 999)}"
             self.log(f"🔔 Tentando novamente com o código: {novo_codigo}")
             
+            # Atualiza o valor na 'row' (para o caso de falhar de novo)
             row_data["CodigoBarras"] = novo_codigo
             
+            # Encontra apenas o campo do código de barras e o atualiza
             campo_id_cb = mapeamento_encontrado.get("CodigoBarras")
             if not campo_id_cb:
                 raise Exception("Campo 'CodigoBarras' não está no mapeamento.")
@@ -301,10 +336,12 @@ class BotSischef:
             input_elem.send_keys(novo_codigo)
             time.sleep(0.3)
             
+            # Salva novamente
             self.driver.find_element(By.ID, "tabSessoesProduto:descricao").click()
             time.sleep(0.3)
             self.driver.find_element(By.ID, "tabSessoesProduto:descricao").send_keys(Keys.ALT, "s")
             
+            # Verifica se deu erro DE NOVO
             try:
                 erro_container = WebDriverWait(self.driver, 1.5).until(
                     EC.presence_of_element_located((By.XPATH, self.SELECTOR_MENSAGEM_POPUP))
@@ -313,16 +350,18 @@ class BotSischef:
                 raise Exception(f"ERRO DE VALIDAÇÃO (2ª tentativa): {msg_text}.")
             
             except TimeoutException:
+                # Nenhuma mensagem = SUCESSO na 2ª tentativa
                 self.log("💾 Produto salvo (na 2ª tentativa).")
                 
         except Exception as e:
             self.log(f"❌ Falha na segunda tentativa de salvamento: {e}")
-            raise e
+            raise e # Para o bot
         
     def editar_ncm(self, arquivo_csv, callback_progresso):
-        """Delega a tarefa de edição de NCM."""
+        """Delega a tarefa de edição de NCM para a classe BotNCMEditor."""
         if not self.driver:
             raise Exception("Navegador não iniciado. Execute 'iniciar' primeiro.")
+
         if not arquivo_csv:
             raise FileNotFoundError("Caminho do CSV de NCM não definido.")
             
