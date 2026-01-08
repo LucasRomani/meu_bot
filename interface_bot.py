@@ -221,11 +221,12 @@ def iniciar_cadastro_qrpedir():
             "ColunaComplementoSN": "PossuiComplemento", # Corrigido para 'ColunaComplementoSN'
             "descricaoComplemento": "descricao_complemento", 
             "itemDescricao": "item_descricao",
+            "ordem": "ordem",
+            "min": "min",
+            "max": "max",
             "itemDescComp": "item_desc_comp",
             "itemCodigo": "item_codigo",
             "itemValor": "item_valor",
-            "itemUnidade": "item_unidade",
-            "itemMinMax": "item_min_max"
         }
         
         # Remove espaços e underscores dos nomes das colunas do CSV para normalizar
@@ -272,6 +273,10 @@ def iniciar_cadastro_qrpedir():
                 if produto_atual:
                     grupo_complemento_atual = row.to_dict()
                     grupo_complemento_atual["itens"] = []
+            # Captura Min e Max se existirem na linha do grupo
+                    if 'ordem' in row: grupo_complemento_atual['ordem'] = row['ordem']                    
+                    if 'min' in row: grupo_complemento_atual['min'] = row['min']
+                    if 'max' in row: grupo_complemento_atual['max'] = row['max']
                     produto_atual["grupos_complemento"].append(grupo_complemento_atual)
                     last_nome_grupo = nome_grup_comp
 

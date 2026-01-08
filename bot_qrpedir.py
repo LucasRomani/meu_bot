@@ -58,6 +58,22 @@ class BotQRPedir:
         except Exception as e:
             self.log(f"❌ Erro ao fazer login ou acessar cardápio no QRPedir: {e}")
             raise
+    def _limpar_e_digitar(self, elemento, valor):
+        """Clica, Seleciona Tudo, Apaga e Digita o valor."""
+        try:
+            valor_str = str(valor)
+            # Remove .0 se for número inteiro vindo do Excel (ex: '1.0' vira '1')
+            if valor_str.endswith(".0"):
+                valor_str = valor_str[:-2]
+            
+            elemento.click()
+            time.sleep(0.1)
+            elemento.send_keys(Keys.CONTROL, "a")
+            time.sleep(0.1)
+            elemento.send_keys(valor_str)
+            time.sleep(0.2)
+        except Exception as e:
+            self.log(f"⚠️ Erro ao digitar '{valor}': {e}")
 
     def encontrar_grupo(self, nome_do_grupo):
         """Verifica se um grupo existe e retorna o BOTAO DE EXPANDIR."""
@@ -96,25 +112,55 @@ class BotQRPedir:
             self.log(f"❌ Erro ao tentar fechar o pop-up com ESC: {e}")
 
     def _cadastrar_grupo_complemento(self, grupo_data):
-        """Cadastra um grupo de complemento."""
-        self.log(f"... Cadastrando Grupo de Complemento: {grupo_data['descricao_complemento']}")
+        """Cadastra um grupo de complemento (com Min/Max/Ordem) e seus itens."""
+        
+        # Formata valores para garantir que sejam inteiros se possível
+        min_val = grupo_data.get('min')
+        max_val = grupo_data.get('max')
+        ordem_val = grupo_data.get('ordem') # NOVO CAMPO
+        
+        try:
+            if min_val: min_val = int(float(min_val))
+            if max_val: max_val = int(float(max_val))
+            if ordem_val: ordem_val = int(float(ordem_val))
+        except ValueError:
+            pass
+
+        self.log(f"... Cadastrando Grupo: {grupo_data['descricao_complemento']} (Min: {min_val}, Max: {max_val}, Ordem: {ordem_val})")
         try:
             wait = WebDriverWait(self.driver, 10)
             
+            # 1. Clica em "Adicionar Complemento"
             add_comp_button = wait.until(
                 EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Adicionar Complemento')]"))
             )
             add_comp_button.click()
             time.sleep(1)
 
-            self.log("... Preenchendo dados do Grupo de Complemento")
+            # 2. Preenche a Descrição do Grupo
+            self.log("... Preenchendo dados do Grupo.")
             campo_desc_grupo = wait.until(
                 EC.presence_of_element_located((By.XPATH, "//input[@placeholder='Sabores tradicionais']"))
             )
-            campo_desc_grupo.send_keys(grupo_data['descricao_complemento'])
-            time.sleep(0.3)
+            self._limpar_e_digitar(campo_desc_grupo, grupo_data['descricao_complemento'])
             
-            # Loop para cadastrar os ITENS 
+            # 3. Preenche MIN e MAX
+            if min_val is not None:
+                campo_min = self.driver.find_element(By.NAME, "min")
+                self._limpar_e_digitar(campo_min, min_val)
+            
+            if max_val is not None:
+                campo_max = self.driver.find_element(By.NAME, "max")
+                self._limpar_e_digitar(campo_max, max_val)
+
+            # --- NOVO: Preenche ORDEM ---
+            if ordem_val is not None:
+                try:
+                    campo_ordem = self.driver.find_element(By.NAME, "ordem")
+                    self._limpar_e_digitar(campo_ordem, ordem_val)
+                except Exception as e:
+                    self.log(f"⚠️ Campo 'ordem' não encontrado ou erro ao preencher: {e}")                        
+            # 4. Loop para cadastrar os ITENS
             for i, item in enumerate(grupo_data['itens']):
                 self.log(f"... Adicionando item: {item['item_descricao']}")
                 
