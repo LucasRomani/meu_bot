@@ -10,3 +10,14 @@ Navegue até a pasta exata onde estão todos os seus arquivos .py
 cd C:\meu_bot_0.2
 
 python -m PyInstaller --onefile --windowed --name="BotSischef 10.0" interface_bot.py
+
+
+
+Resumo Rápido
+No seu terminal Git Bash, dentro da pasta do projeto, a sequência de comandos é:
+
+git add .
+
+git commit -m "Sua mensagem"
+
+git push origin main
