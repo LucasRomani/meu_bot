@@ -4,6 +4,8 @@ import threading
 import time
 import pandas as pd
 import os
+import re
+import unicodedata
 from bot_sischef import BotSischef
 from bot_qrpedir import BotQRPedir
 # Importações do Selenium
@@ -417,7 +419,6 @@ def iniciar_ajuste_codbarras():
 
     except Exception as e: log_msg(f"❌ Erro crítico CB: {e}")
     finally: rodando = False; restaurar_botoes_sischef()
-
 # --- 5. AJUSTE DE PREÇO DE VENDA ---
 def iniciar_precovenda_thread():
     global rodando
@@ -439,7 +440,34 @@ def iniciar_ajuste_precovenda():
     try:
         df = pd.read_csv(csv_path_sischef, dtype=str).fillna('')
         total = len(df)
-        log_msg(f"🔹 Iniciando Ajuste de Preço. Total: {total} itens.")
+        
+        # --- LEITURA INTELIGENTE DE COLUNAS ---
+        def limpar_coluna(nome):
+            n = unicodedata.normalize('NFKD', str(nome)).encode('ASCII', 'ignore').decode('utf-8')
+            return re.sub(r'[^a-zA-Z0-9]', '', n).lower()
+            
+        col_nome = None
+        col_compra = None
+        col_venda = None
+        
+        for col in df.columns:
+            c_limpo = limpar_coluna(col)
+            if c_limpo in ['nome', 'produto', 'descricao', 'item', 'codigo']:
+                if not col_nome: col_nome = col
+            elif c_limpo in ['precodecompra', 'precocompra', 'custo', 'valorcompra', 'compra', 'valorcusto']:
+                col_compra = col
+            elif c_limpo in ['precodevenda', 'precovenda', 'venda', 'valorvenda', 'preco']:
+                col_venda = col
+                
+        # Fallback para as colunas 1, 2 e 3 caso não encontre pelos nomes reconhecidos
+        todas_colunas = list(df.columns)
+        if not col_nome and len(todas_colunas) > 0: col_nome = todas_colunas[0]
+        if not col_compra and len(todas_colunas) > 1: col_compra = todas_colunas[1]
+        if not col_venda and len(todas_colunas) > 2: col_venda = todas_colunas[2]
+        
+        log_msg(f"🔹 Ajuste de Preços ({total} itens).")
+        log_msg(f"📌 Identificado: Produto='{col_nome}' | Compra='{col_compra}' | Venda='{col_venda}'")
+        
         inicio_tempo = time.time()
         threading.Thread(target=atualizar_tempo, daemon=True).start()
         wait = WebDriverWait(bot_sischef.driver, 10)
@@ -449,13 +477,20 @@ def iniciar_ajuste_precovenda():
             if not rodando: log_msg("⏸️ Interrompido."); break
             row = df.iloc[i]
             try:
-                vals = list(row.values)
-                termo = str(vals[0]).strip()
-                novo_preco = str(vals[1]).strip() if len(vals) > 1 else ""
-                novo_preco = limpar_valor_monetario(novo_preco) 
-            except IndexError: log_msg("❌ Erro estrutura CSV."); break
+                # Agora o robô puxa com base no nome exato da coluna identificada
+                termo = str(row[col_nome]).strip() if col_nome and col_nome in row else ""
+                novo_preco_compra = str(row[col_compra]).strip() if col_compra and col_compra in row else ""
+                novo_preco_venda = str(row[col_venda]).strip() if col_venda and col_venda in row else ""
+                
+                if novo_preco_compra.lower() in ['nan', 'null']: novo_preco_compra = ""
+                if novo_preco_venda.lower() in ['nan', 'null']: novo_preco_venda = ""
+                
+                novo_preco_compra = limpar_valor_monetario(novo_preco_compra) 
+                novo_preco_venda = limpar_valor_monetario(novo_preco_venda) 
+            except Exception as e_csv: 
+                log_msg(f"❌ Erro na leitura da linha CSV: {e_csv}"); break
             
-            atualizar_contador(i + 1, total, 'precovenda', f"🔍 Preço: {termo}")
+            atualizar_contador(i + 1, total, 'precovenda', f"🔍 Produto: {termo}")
             try:
                 campo_busca = wait.until(EC.presence_of_element_located((By.ID, "_input-busca-generica_")))
                 campo_busca.clear(); campo_busca.send_keys(termo); time.sleep(0.5); campo_busca.send_keys(Keys.ENTER)
@@ -469,19 +504,31 @@ def iniciar_ajuste_precovenda():
                     bot_sischef.driver.execute_script("arguments[0].click();", btn_edit)
                     time.sleep(2)
                     try:
-                        campo_preco = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@id, 'tabSessoesProduto:precoVenda')]")))
-                        campo_preco.click(); time.sleep(0.2)
-                        campo_preco.send_keys(Keys.CONTROL, "a"); time.sleep(0.1)
-                        campo_preco.send_keys(Keys.BACK_SPACE); time.sleep(0.1)
-                        campo_preco.send_keys(novo_preco)
-                        time.sleep(0.5)
+                        # --- Ajuste Preço de COMPRA ---
+                        if novo_preco_compra:
+                            campo_compra = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@id, 'tabSessoesProduto:valorUnitarioCompra') or contains(@id, 'precoCompra')]")))
+                            campo_compra.click(); time.sleep(0.2)
+                            campo_compra.send_keys(Keys.CONTROL, "a"); time.sleep(0.1)
+                            campo_compra.send_keys(Keys.BACK_SPACE); time.sleep(0.1)
+                            campo_compra.send_keys(novo_preco_compra)
+                            time.sleep(0.5)
+
+                        # --- Ajuste Preço de VENDA ---
+                        if novo_preco_venda:
+                            campo_venda = wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(@id, 'tabSessoesProduto:valorUnitarioVenda') or contains(@id, 'precoVenda')]")))
+                            campo_venda.click(); time.sleep(0.2)
+                            campo_venda.send_keys(Keys.CONTROL, "a"); time.sleep(0.1)
+                            campo_venda.send_keys(Keys.BACK_SPACE); time.sleep(0.1)
+                            campo_venda.send_keys(novo_preco_venda)
+                            time.sleep(0.5)
                         
                         bot_sischef.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                         time.sleep(0.5)
                         ActionChains(bot_sischef.driver).key_down(Keys.ALT).send_keys('s').key_up(Keys.ALT).perform()
                         time.sleep(2.0)
                         
-                        log_msg(f"✅ Preço alterado: '{novo_preco}'")
+                        log_msg(f"✅ Preços salvos | Compra: {novo_preco_compra or 'N/A'} | Venda: {novo_preco_venda or 'N/A'}")
+                        
                         try:
                             bot_sischef.driver.execute_script("window.scrollTo(0, 0);")
                             time.sleep(0.5)
