@@ -32,6 +32,10 @@ CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# ─── Database Initialization ───
+with app.app_context():
+    init_db()
+    init_default_admin()
 
 # ─── Per-User Session Storage  (in-memory for active bot instances) ───
 user_sessions = {}   # { user_id: { bot_sischef, bot_qrpedir, rodando, execution_id, ... } }
