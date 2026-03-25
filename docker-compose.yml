@@ -11,6 +11,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
+      - ./backend:/app
       - ./backend/uploads:/app/uploads
 
   frontend:
