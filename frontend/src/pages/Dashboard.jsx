@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { getSocket, apiUploadCSV, apiGetCredentials, apiSaveCredential } from '../services/api'
+import { getSocket, apiUploadCSV, apiGetCredentials, apiSaveCredential, apiChangePassword } from '../services/api'
 import LogConsole from '../components/LogConsole'
 import ProgressBar from '../components/ProgressBar'
 
@@ -24,6 +24,13 @@ export default function Dashboard({ token, username, onLogout }) {
   const [timer, setTimer] = useState('00:00')
   const [running, setRunning] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [view, setView] = useState('main') // 'main' or 'settings'
+
+  // Change Password State
+  const [oldPass, setOldPass] = useState('')
+  const [newPass, setNewPass] = useState('')
+  const [confirmPass, setConfirmPass] = useState('')
+  const [passMsg, setPassMsg] = useState({ text: '', type: '' })
 
   // Bot status
   const [sischefActive, setSischefActive] = useState(false)
@@ -165,12 +172,37 @@ export default function Dashboard({ token, username, onLogout }) {
 
   const clearLogs = () => setLogs([])
 
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    setPassMsg({ text: '', type: '' })
+
+    if (newPass !== confirmPass) {
+      return setPassMsg({ text: 'As senhas não coincidem.', type: 'error' })
+    }
+
+    const res = await apiChangePassword(oldPass, newPass, token)
+    if (res.success) {
+      setPassMsg({ text: 'Senha alterada com sucesso!', type: 'success' })
+      setOldPass('')
+      setNewPass('')
+      setConfirmPass('')
+    } else {
+      setPassMsg({ text: res.message || 'Erro ao alterar senha.', type: 'error' })
+    }
+  }
+
   return (
     <div className="dashboard">
       {/* Header */}
       <header className="dashboard-header">
         <h1>🤖 Bot Sischef & QRPedir</h1>
         <div className="header-right">
+          <button 
+            className="btn btn-dark btn-sm" 
+            onClick={() => setView(view === 'main' ? 'settings' : 'main')}
+          >
+            {view === 'main' ? '⚙️ Configurações' : '🏠 Dashboard'}
+          </button>
           <Link to="/history" className="btn btn-dark btn-sm">📜 Histórico</Link>
           <div className="header-user">
             <div className="avatar">{username?.charAt(0).toUpperCase()}</div>
@@ -180,7 +212,71 @@ export default function Dashboard({ token, username, onLogout }) {
         </div>
       </header>
 
-      <div className="dashboard-content">
+      {view === 'settings' ? (
+        <div className="dashboard-content settings-view">
+          <div className="panel" style={{ maxWidth: '600px', margin: '40px auto' }}>
+            <div className="panel-header">
+              <h2>🔒 Alterar Senha</h2>
+            </div>
+            <div className="panel-body">
+              <form onSubmit={handleChangePassword}>
+                <div className="form-group">
+                  <label>Senha Atual</label>
+                  <input 
+                    type="password" 
+                    value={oldPass} 
+                    onChange={(e) => setOldPass(e.target.value)} 
+                    required 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Nova Senha</label>
+                  <input 
+                    type="password" 
+                    value={newPass} 
+                    onChange={(e) => setNewPass(e.target.value)} 
+                    required 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Confirmar Nova Senha</label>
+                  <input 
+                    type="password" 
+                    value={confirmPass} 
+                    onChange={(e) => setConfirmPass(e.target.value)} 
+                    required 
+                  />
+                </div>
+                {passMsg.text && (
+                  <p className={`msg ${passMsg.type}`} style={{ 
+                    padding: '10px', 
+                    borderRadius: '4px', 
+                    marginBottom: '10px',
+                    backgroundColor: passMsg.type === 'success' ? '#d4edda' : '#f8d7da',
+                    color: passMsg.type === 'success' ? '#155724' : '#721c24'
+                  }}>
+                    {passMsg.text}
+                  </p>
+                )}
+                <button type="submit" className="btn btn-primary">Atualizar Senha</button>
+              </form>
+            </div>
+          </div>
+
+          <div className="panel" style={{ maxWidth: '600px', margin: '0 auto' }}>
+            <div className="panel-header">
+              <h2>👥 Gestão de Usuários</h2>
+            </div>
+            <div className="panel-body">
+              <p>Para adicionar novos usuários ao sistema, utilize a opção <strong>"Criar Conta"</strong> na tela de login.</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
+                Cada usuário terá seu próprio banco de credenciais e histórico de execuções de forma isolada.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="dashboard-content">
         {/* Status Bar */}
         <div className="status-bar">
           <div className="status-item">
@@ -391,9 +487,9 @@ export default function Dashboard({ token, username, onLogout }) {
           </div>
         </div>
 
-        {/* Log Console */}
         <LogConsole logs={logs} onClear={clearLogs} />
       </div>
+      )}
     </div>
   )
 }

@@ -73,3 +73,24 @@ def init_default_admin():
             print("✅ Usuário padrão criado no banco: admin / admin123")
     finally:
         session.close()
+def change_password(user_id, old_password, new_password):
+    """Change a user's password. Returns (success, message)."""
+    session = get_session()
+    try:
+        user = session.get(User, user_id)
+        if not user:
+            return False, 'Usuário não encontrado.'
+        
+        # Verify old password
+        if not bcrypt.checkpw(old_password.encode('utf-8'), user.password_hash.encode('utf-8')):
+            return False, 'Senha antiga incorreta.'
+        
+        # Update password
+        user.password_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        session.commit()
+        return True, 'Senha alterada com sucesso.'
+    except Exception as e:
+        session.rollback()
+        return False, f'Erro ao alterar senha: {str(e)}'
+    finally:
+        session.close()

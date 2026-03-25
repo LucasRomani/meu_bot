@@ -15,7 +15,7 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 
 from config import SECRET_KEY, UPLOAD_FOLDER, MAX_CONTENT_LENGTH, CHROME_HEADLESS
-from auth import authenticate_user, register_user, verify_token, init_default_admin
+from auth import authenticate_user, register_user, verify_token, init_default_admin, change_password
 from database import init_db, get_session
 from models import User, SavedCredential, Execution, LogEntry
 import crypto_utils
@@ -157,6 +157,22 @@ def login():
     if success:
         return jsonify({'success': True, 'token': token_or_message, 'username': data.get('username')})
     return jsonify({'success': False, 'message': token_or_message})
+
+
+@app.route('/api/change-password', methods=['POST'])
+def handle_change_password():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'message': 'Token ausente.'}), 401
+    
+    token = auth_header.split(' ')[1]
+    user_id, username = verify_token(token)
+    if not user_id:
+        return jsonify({'success': False, 'message': 'Token inválido ou expirado.'}), 401
+    
+    data = request.json
+    success, message = change_password(user_id, data.get('old_password'), data.get('new_password'))
+    return jsonify({'success': success, 'message': message})
 
 
 @app.route('/api/history', methods=['GET'])

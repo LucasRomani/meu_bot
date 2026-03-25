@@ -78,3 +78,14 @@ export async function apiSaveCredential(credentialData, token) {
   });
   return res.json();
 }
+export async function apiChangePassword(oldPassword, newPassword, token) {
+  const res = await fetch(`${API_BASE}/api/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  });
+  return res.json();
+}
