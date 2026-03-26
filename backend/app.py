@@ -1,3 +1,6 @@
+import gevent.monkey
+gevent.monkey.patch_all()
+
 import os
 import sys
 import time
@@ -29,7 +32,14 @@ app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 CORS(app, supports_credentials=True)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins="*",
+    async_mode='gevent', 
+    ping_timeout=60,
+    engineio_logger=True,
+    logger=True
+)
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ─── Database Initialization ───
@@ -73,7 +83,7 @@ def _make_log_callback(user_id, username):
             'time': time.strftime('%H:%M:%S'),
             'message': msg
         }, room=username)
-
+        socketio.sleep(0.01)
         # Save to DB if there's an active execution
         session_data = _get_session(user_id)
         exec_id = session_data.get('execution_id')
@@ -106,7 +116,7 @@ def _make_progress_callback(user_id, username, bot_type):
             'bot_type': bot_type,
             'message': msg
         }, room=username)
-
+        socketio.sleep(0.01)
         # Update DB Execution
         exec_id = session.get('execution_id')
         if exec_id:
@@ -578,7 +588,8 @@ def _timer_thread(user_id, username):
             elapsed = int(time.time() - session['inicio_tempo'])
             mins, secs = divmod(elapsed, 60)
             socketio.emit('timer', {'time': f'{mins:02d}:{secs:02d}'}, room=username)
-        time.sleep(1)
+            socketio.sleep(0)
+        time.sleep(0.8)
     socketio.emit('timer', {'time': '00:00'}, room=username)
 
 
@@ -730,7 +741,7 @@ def _run_tributacao(user_id, username):
             try:
                 campo_busca = wait.until(EC.presence_of_element_located((By.ID, "_input-busca-generica_")))
                 campo_busca.clear(); campo_busca.send_keys(termo); time.sleep(0.5); campo_busca.send_keys(Keys.ENTER)
-                time.sleep(2)
+                time.sleep(1)
 
                 try:
                     session['bot_sischef'].driver.find_element(By.XPATH, "//td[contains(text(), 'Nada encontrado')]")
@@ -739,11 +750,11 @@ def _run_tributacao(user_id, username):
                 except:
                     btn_edit = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@class, 'btn') and contains(., 'Editar')]")))
                     session['bot_sischef'].driver.execute_script("arguments[0].click();", btn_edit)
-                    time.sleep(2)
+                    time.sleep(1)
                     try:
                         tab = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(), 'Tributações (fiscais)')]")))
                         session['bot_sischef'].driver.execute_script("arguments[0].click();", tab)
-                        time.sleep(1.5)
+                        time.sleep(1)
                         if id_trib:
                             cp_gp = wait.until(EC.presence_of_element_located((By.ID, "tabSessoesProduto:grupoTributario_input")))
                             cp_gp.click(); time.sleep(0.2); cp_gp.send_keys(Keys.CONTROL, "a"); cp_gp.send_keys(Keys.BACK_SPACE)
@@ -751,7 +762,7 @@ def _run_tributacao(user_id, username):
                             time.sleep(1)
                             session['bot_sischef'].driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                             ActionChains(session['bot_sischef'].driver).key_down(Keys.ALT).send_keys('s').key_up(Keys.ALT).perform()
-                            time.sleep(2.5)
+                            time.sleep(1.5)
                             try:
                                 session['bot_sischef'].driver.execute_script("window.scrollTo(0, 0);")
                                 time.sleep(0.5)
@@ -831,7 +842,7 @@ def _run_codbarras(user_id, username):
             try:
                 campo_busca = wait.until(EC.presence_of_element_located((By.ID, "_input-busca-generica_")))
                 campo_busca.clear(); campo_busca.send_keys(termo); time.sleep(0.5); campo_busca.send_keys(Keys.ENTER)
-                time.sleep(2)
+                time.sleep(1)
 
                 try:
                     session['bot_sischef'].driver.find_element(By.XPATH, "//td[contains(text(), 'Nada encontrado')]")
@@ -840,7 +851,7 @@ def _run_codbarras(user_id, username):
                 except:
                     btn_edit = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@class, 'btn') and contains(., 'Editar')]")))
                     session['bot_sischef'].driver.execute_script("arguments[0].click();", btn_edit)
-                    time.sleep(2)
+                    time.sleep(1)
                     try:
                         campo_cb = wait.until(EC.presence_of_element_located((By.ID, "tabSessoesProduto:codigoBarras")))
                         campo_cb.click(); time.sleep(0.2)
@@ -1194,6 +1205,7 @@ def _run_cadastro_qrpedir(user_id, username):
             progress_cb(i, total, f"--- Processando {i + 1}/{total}: {item_agrupado['Nome']} ---")
             try:
                 session['bot_qrpedir'].processar_item_cardapio(item_agrupado)
+                socketio.sleep(0.01) # Yield to keep heartbeat alive
                 session['indices']['qrpedir'] = i + 1
                 progress_cb(i + 1, total, f"✅ Produto {item_agrupado['Nome']} salvo.")
             except Exception as e:
