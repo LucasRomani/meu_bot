@@ -83,6 +83,7 @@ class BotQRPedir:
                 self.log("... Aguardando autenticação...")
                 WebDriverWait(self.driver, 25).until(lambda d: "login" not in d.current_url)
                 self.log("✅ Login no QRPedir realizado com sucesso!")
+                
                 self.log("✅ Página do Cardápio carregada!")
 
         except Exception as e:
