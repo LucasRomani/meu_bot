@@ -35,6 +35,8 @@ export default function Dashboard({ token, username, onLogout }) {
   // Bot status
   const [sischefActive, setSischefActive] = useState(false)
   const [qrpedirActive, setQrpedirActive] = useState(false)
+  const [sischefScreenshot, setSischefScreenshot] = useState(null)
+  const [qrpedirScreenshot, setQrpedirScreenshot] = useState(null)
 
   // Credentials
   const [sischefUser, setSischefUser] = useState('')
@@ -74,6 +76,11 @@ export default function Dashboard({ token, username, onLogout }) {
     s.on('bot_status', (data) => {
       if (data.bot_type === 'sischef') setSischefActive(data.active)
       if (data.bot_type === 'qrpedir') setQrpedirActive(data.active)
+    })
+
+    s.on('screenshot', (data) => {
+      if (data.bot_type === 'sischef') setSischefScreenshot(data.image)
+      if (data.bot_type === 'qrpedir') setQrpedirScreenshot(data.image)
     })
 
     s.on('task_started', () => {
@@ -349,6 +356,17 @@ export default function Dashboard({ token, username, onLogout }) {
               </button>
             </div>
 
+            {/* Sischef Live Feed */}
+            {sischefScreenshot && sischefActive && (
+              <div className="livestream" style={{ margin: '15px 0', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#000' }}>
+                <div style={{ backgroundColor: '#222', color: '#ff4444', fontSize: '12px', padding: '4px 8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ width: '8px', height: '8px', backgroundColor: '#ff4444', borderRadius: '50%', display: 'inline-block' }}></span>
+                  MONITORAMENTO AO VIVO
+                </div>
+                <img src={`data:image/png;base64,${sischefScreenshot}`} alt="Sischef Live Feed" style={{ width: '100%', display: 'block' }} />
+              </div>
+            )}
+
             {/* CSV Sischef */}
             <div className="section-label">CSV Geral</div>
             <input
@@ -457,6 +475,17 @@ export default function Dashboard({ token, username, onLogout }) {
                 💾 Salvar Credenciais
               </button>
             </div>
+
+            {/* QRPedir Live Feed */}
+            {qrpedirScreenshot && qrpedirActive && (
+              <div className="livestream" style={{ margin: '15px 0', border: '1px solid #444', borderRadius: '8px', overflow: 'hidden', backgroundColor: '#000' }}>
+                <div style={{ backgroundColor: '#222', color: '#ff4444', fontSize: '12px', padding: '4px 8px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ width: '8px', height: '8px', backgroundColor: '#ff4444', borderRadius: '50%', display: 'inline-block' }}></span>
+                  MONITORAMENTO AO VIVO
+                </div>
+                <img src={`data:image/png;base64,${qrpedirScreenshot}`} alt="QRPedir Live Feed" style={{ width: '100%', display: 'block' }} />
+              </div>
+            )}
 
             {/* CSV QRPedir */}
             <div className="section-label">CSV Cadastro QRPedir</div>

@@ -136,6 +136,17 @@ def _make_progress_callback(user_id, username, bot_type):
     return progress_cb
 
 
+def _make_screenshot_callback(user_id, username, bot_type):
+    """Create a callback that emits base64 screenshots to UI."""
+    def screenshot_cb(b64_img):
+        socketio.emit('screenshot', {
+            'bot_type': bot_type,
+            'image': b64_img
+        }, room=username)
+        socketio.sleep(0.01)
+    return screenshot_cb
+
+
 # ─── Auth Decorator for Socket Events ───
 def socket_auth_required(f):
     @wraps(f)
@@ -395,7 +406,7 @@ def handle_start_bot(user_id, username, data):
             return
         try:
             from bot_sischef import BotSischef
-            bot = BotSischef(usuario, senha, log_callback=_make_log_callback(user_id, username), headless=CHROME_HEADLESS)
+            bot = BotSischef(usuario, senha, log_callback=_make_log_callback(user_id, username), screenshot_callback=_make_screenshot_callback(user_id, username, 'sischef'), headless=CHROME_HEADLESS)
             bot.iniciar()
             session['bot_sischef'] = bot
             emit('bot_status', {'bot_type': 'sischef', 'active': True}, room=username)
@@ -408,7 +419,7 @@ def handle_start_bot(user_id, username, data):
             return
         try:
             from bot_qrpedir import BotQRPedir
-            bot = BotQRPedir(usuario, senha, log_callback=_make_log_callback(user_id, username), headless=CHROME_HEADLESS)
+            bot = BotQRPedir(usuario, senha, log_callback=_make_log_callback(user_id, username), screenshot_callback=_make_screenshot_callback(user_id, username, 'qrpedir'), headless=CHROME_HEADLESS)
             bot.iniciar()
             session['bot_qrpedir'] = bot
             emit('bot_status', {'bot_type': 'qrpedir', 'active': True}, room=username)

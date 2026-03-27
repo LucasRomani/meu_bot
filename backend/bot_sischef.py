@@ -35,12 +35,13 @@ class BotSischef:
     
     SELECTOR_MODAL_INTERCEPT = "div[id$='ajaxErrorHandlerDialog_modal']"
 
-    def __init__(self, usuario, senha, log_callback=None, headless=False):
+    def __init__(self, usuario, senha, log_callback=None, screenshot_callback=None, headless=False):
         if not usuario or not senha:
             raise ValueError("Usuário e senha não podem ser vazios!")
         self.usuario = usuario
         self.senha = senha
         self.headless = headless
+        self.screenshot_callback = screenshot_callback
         
         self.arquivo_csv_cadastro = None 
         self.arquivo_csv_receitas = None # Novo CSV
@@ -100,8 +101,25 @@ class BotSischef:
                 EC.visibility_of_element_located((By.ID, self.ID_CAMPO_BUSCA_LISTAGEM))
             )
             self.log("✅ Login realizado com sucesso.")
+            self._iniciar_thread_screenshot()
         except TimeoutException:
             raise Exception(f"Timeout: A tela inicial não carregou.")
+
+    def _iniciar_thread_screenshot(self):
+        """Inicia uma thread que tira screenshots a cada 2 segundos"""
+        if not self.screenshot_callback: return
+        import threading
+        
+        def run():
+            while self.rodando and self.driver:
+                try:
+                    b64 = self.driver.get_screenshot_as_base64()
+                    self.screenshot_callback(b64)
+                except:
+                    pass
+                time.sleep(2.0)
+                
+        threading.Thread(target=run, daemon=True).start()
 
     # =========================================================================
     # LÓGICA DE LEITORES (PARSERS)

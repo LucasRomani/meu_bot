@@ -12,12 +12,14 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 
 class BotQRPedir:
-    def __init__(self, usuario, senha, log_callback=None, headless=False):
+    def __init__(self, usuario, senha, log_callback=None, screenshot_callback=None, headless=False):
         if not usuario or not senha:
             raise ValueError("Usuário e senha não podem ser vazios!")
         self.usuario = usuario
         self.senha = senha
         self.headless = headless
+        self.screenshot_callback = screenshot_callback
+        self.rodando = True
         self.driver = None
         self.log = log_callback if log_callback else print
 
@@ -94,6 +96,25 @@ class BotQRPedir:
             else:
                 self.log(f"❌ Erro fatal ao iniciar QRPedir: {e}")
                 raise
+        finally:
+            self._iniciar_thread_screenshot()
+
+    def _iniciar_thread_screenshot(self):
+        """Inicia uma thread que tira screenshots a cada 2 segundos"""
+        if not self.screenshot_callback: return
+        import threading
+        
+        def run():
+            while self.rodando and self.driver:
+                try:
+                    b64 = self.driver.get_screenshot_as_base64()
+                    self.screenshot_callback(b64)
+                except:
+                    pass
+                time.sleep(2.0)
+                
+        threading.Thread(target=run, daemon=True).start()
+
     def _limpar_e_digitar(self, elemento, valor):
         """Clica, Seleciona Tudo, Apaga e Digita o valor."""
         try:
@@ -446,6 +467,7 @@ class BotQRPedir:
 
     def fechar(self):
         """Fecha o navegador QRPedir."""
+        self.rodando = False
         if self.driver:
             try:
                 self.driver.quit()
