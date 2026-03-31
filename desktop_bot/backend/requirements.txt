@@ -1,0 +1,11 @@
+flask==3.1.0
+flask-socketio==5.5.1
+flask-cors==5.0.1
+gevent==25.9.1
+gevent-websocket==0.10.1
+pandas==2.2.3
+requests==2.32.3
+selenium==4.27.1
+webdriver-manager==4.0.2
+openpyxl==3.1.5
+python-dotenv==1.0.1

@@ -1,0 +1,51 @@
+{
+  "name": "frontend",
+  "private": true,
+  "description": "MeuBot Sischef & QRPedir",
+  "author": "MeuBot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on tcp:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.sischefqpedir.bot",
+    "productName": "MeuBot-Setup",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/backend_app.exe",
+        "to": "backend_app.exe",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"]
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^41.1.0",
+    "electron-builder": "^26.8.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1",
+    "wait-on": "^9.0.4"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "react-router-dom": "^7.13.2",
+    "socket.io-client": "^4.8.3"
+  }
+}
