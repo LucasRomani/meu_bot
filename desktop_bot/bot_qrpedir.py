@@ -83,31 +83,70 @@ class BotQRPedir:
         except Exception as e:
             self.log(f"⚠️ Erro ao digitar '{valor}': {e}")
 
+    # =========================================================================
+    # NOVA BUSCA INTELIGENTE (SCROLL ATIVO)
+    # =========================================================================
     def encontrar_grupo(self, nome_do_grupo):
         nome_grupo_upper = nome_do_grupo.strip().upper() 
-        self.log(f"... Verificando se o grupo '{nome_grupo_upper}' existe...")
-        time.sleep(0.5)
+        self.log(f"... Buscando o grupo '{nome_grupo_upper}' na página...")
+        
+        xpath_h6 = f"//h6[text()='{nome_grupo_upper}']"
         
         try:
-            xpath_h6 = f"//h6[text()='{nome_grupo_upper}']"
-            lista_h6 = self.driver.find_elements(By.XPATH, xpath_h6)
-            
-            if len(lista_h6) > 0:
-                self.log("✅ Grupo encontrado! Retornando o botão de expandir.")
-                h6_element = lista_h6[0]
-                summary_button = h6_element.find_element(By.XPATH, "./ancestor::button[contains(@class, 'MuiAccordionSummary-root')]")
-                
-                # Rola a tela até o grupo encontrado para garantir que ele está visível
-                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", summary_button)
-                time.sleep(0.3)
-                return summary_button
-            else:
-                self.log("❌ Grupo não encontrado.")
-                return None
-        except Exception as e:
-            self.log(f"Erro ao encontrar grupo: {e}")
-            return None
+            # Força o navegador a ir para o topo da página antes de começar a busca
+            self.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(0.5)
 
+            # Vai tentar rolar a página até 15 vezes procurando o grupo
+            for tentativa in range(15):
+                lista_h6 = self.driver.find_elements(By.XPATH, xpath_h6)
+                
+                # Se achou, clica!
+                if len(lista_h6) > 0:
+                    self.log("✅ Grupo encontrado na lista!")
+                    h6_element = lista_h6[0]
+                    summary_button = h6_element.find_element(By.XPATH, "./ancestor::button[contains(@class, 'MuiAccordionSummary-root')]")
+                    
+                    # Rola a tela até o grupo encontrado para garantir que ele está visível e não fique atrás do menu
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", summary_button)
+                    time.sleep(0.5)
+                    return summary_button
+                
+                # Se não achou, rola a página um pouco para baixo
+                altura_antiga = self.driver.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+                self.driver.execute_script("window.scrollBy(0, 800);")
+                
+                # Plano B: Caso a lista de categorias seja uma DIV com rolagem interna em vez de a tela toda,
+                # pedimos ao robô para ir até à última categoria visível e rolá-la para a vista.
+                try:
+                    todos_h6 = self.driver.find_elements(By.XPATH, "//h6")
+                    if len(todos_h6) > 0:
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'end'});", todos_h6[-1])
+                except:
+                    pass
+                
+                time.sleep(1) # Aguarda o sistema carregar os grupos ocultos
+                altura_nova = self.driver.execute_script("return document.documentElement.scrollTop || document.body.scrollTop;")
+                
+                # Verifica se chegamos ao fundo da página (se a altura não mudou)
+                if altura_nova == altura_antiga and tentativa > 3:
+                    # Pode ter ficado bloqueado, vamos tentar só mais uma verificação completa e sair
+                    lista_final = self.driver.find_elements(By.XPATH, xpath_h6)
+                    if len(lista_final) > 0:
+                        h6_element = lista_final[0]
+                        summary_button = h6_element.find_element(By.XPATH, "./ancestor::button[contains(@class, 'MuiAccordionSummary-root')]")
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", summary_button)
+                        time.sleep(0.5)
+                        return summary_button
+                    break
+                    
+            self.log("❌ Grupo não encontrado.")
+            return None
+            
+        except Exception as e:
+            self.log(f"Erro na busca de grupo com scroll: {e}")
+            return None
+        
     def _fechar_modal_produto(self):
         self.log("... Fechando pop-up do produto com a tecla ESC (via ActionChains)...")
         try:

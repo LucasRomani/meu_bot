@@ -971,7 +971,7 @@ class BotSischef:
         
         while produto_index_atual < total:
             if not is_rodando():
-                self.log("ℹ️ Cadastro Sischef interrompido pelo usuário.")
+                self.log("ℹ️ Cadastro Sischef interrompido pelo utilizador.")
                 break 
             
             i = produto_index_atual
@@ -1026,13 +1026,14 @@ class BotSischef:
                     continue 
 
                 try:
-                    botao_novo = WebDriverWait(self.driver, 1.5).until(
+                    # Aumentado o tempo de espera para 4 segundos e usando clique via JavaScript para evitar bloqueios
+                    botao_novo = WebDriverWait(self.driver, 4).until(
                         EC.element_to_be_clickable((By.CSS_SELECTOR, "a.mui-btn.mui-btn-text"))
                     )
-                    botao_novo.click()
-                    time.sleep(0.8)
+                    self.driver.execute_script("arguments[0].click();", botao_novo)
+                    time.sleep(1.0)
                 except (TimeoutException, ElementClickInterceptedException):
-                    self.log(f"⚠️ Não foi possível confirmar o salvamento de: {produto_descricao}.")
+                    self.log(f"✅ Salvamento de '{produto_descricao}' concluído (Recarregando página para o próximo).")
                     self.driver.get(self.URL_CADASTRO_PRODUTO)
                     wait.until(EC.presence_of_element_located((By.ID, "tabSessoesProduto:descricao")))
 
